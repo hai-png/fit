@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fitness Engine - Client Intake Form</title>
+<style>
+:root {
+  --bg: #f7f8fa; --panel: #fff; --ink: #1f2937; --muted: #6b7280;
+  --accent: #2f6fed; --accent-2: #e8f0ff;
+  --border: #e5e7eb; --good: #15803d; --warn: #b91c1c;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 24px; background: var(--bg); color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+               Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px; line-height: 1.5;
+}
+h1 { color: var(--accent); margin: 0 0 16px 0; }
+.lead { color: var(--muted); max-width: 720px; }
+.panel {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 22px; margin: 16px 0;
+}
+.panel h2 { margin: 0 0 12px 0; font-size: 17px; color: var(--accent); }
+.panel h3 { margin: 0 0 6px 0; font-size: 13px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+label { display: block; font-weight: 600; font-size: 13px;
+  margin: 8px 0 4px 0; }
+.help { font-weight: 400; color: var(--muted); font-size: 12px; }
+input[type=text], input[type=number], select, textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 6px; background: white; font: inherit;
+}
+input[type=checkbox] { margin-right: 6px; }
+.checkbox-row { display: grid; grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px 16px; margin: 4px 0; }
+.btn {
+  display: inline-block; padding: 10px 18px; border-radius: 6px;
+  background: var(--accent); color: white; border: none;
+  cursor: pointer; font: inherit; font-weight: 600;
+  text-decoration: none; margin-right: 8px;
+}
+.btn:hover { background: #1e54d8; }
+.btn-secondary { background: var(--accent-2); color: var(--accent); }
+.btn-secondary:hover { background: #d3e0ff; }
+.archetype-card {
+  border: 2px solid var(--border); border-radius: 8px;
+  padding: 10px 14px; margin: 4px; cursor: pointer; transition: all 0.15s;
+  background: white; display: inline-block; vertical-align: top;
+  min-width: 180px;
+}
+.archetype-card.selected { border-color: var(--accent);
+  background: var(--accent-2); }
+.archetype-card .name { font-weight: 600; font-size: 13px;
+  color: var(--accent); }
+.archetype-card .desc { color: var(--muted); font-size: 12px;
+  margin-top: 4px; }
+code { background: #f3f4f6; padding: 1px 6px; border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; }
+.output-pre { background: #f9fafb; padding: 12px; border-radius: 6px;
+  border: 1px solid var(--border); overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; max-height: 400px; }
+.tag {
+  display: inline-block; background: var(--accent-2);
+  color: var(--accent); padding: 1px 8px; border-radius: 4px;
+  font-size: 12px; margin: 0 4px;
+}
+.alert { padding: 10px 14px; border-radius: 6px; margin: 8px 0;
+  font-size: 13px; }
+.alert.warn { background: #fef2f2; color: var(--warn);
+  border: 1px solid #fecaca; }
+.alert.good { background: #f0fdf4; color: var(--good);
+  border: 1px solid #bbf7d0; }
+</style>
+</head>
+<body>
+<h1>Fitness Engine &mdash; Client Intake</h1>
+<p class="lead">
+  Complete this form to generate a JSON profile. Save the file, then run
+  <code>python -m fitness_engine.cli profile client.json --format html --out plan.html</code>
+  to produce a personalised plan. Or pick a curated archetype below to
+  auto-fill the form.
+</p>
+
+<div class="panel">
+  <h2>Quick Start &mdash; Curated Archetypes</h2>
+  <h3>Click a card to auto-fill the form</h3>
+  <div id="archetype-grid"></div>
+</div>
+
+<form id="intake">
+
+<div class="panel">
+  <h2>1. Identity</h2>
+  <div class="row">
+    <div>
+      <label>Client name <input type="text" id="name" value="New Client"></label>
+    </div>
+    <div>
+      <label>Age <input type="number" id="age" value="30" min="14" max="100"></label>
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <label>Biological sex
+        <select id="sex"><option value="female">Female</option>
+        <option value="male">Male</option></select>
+      </label>
+    </div>
+    <div>
+      <label>Height (cm) <input type="number" id="height_cm" value="170" min="120" max="220"></label>
+    </div>
+  </div>
+  <div class="row3">
+    <div>
+      <label>Weight (kg) <input type="number" id="weight_kg" value="70" min="30" max="250"></label>
+    </div>
+    <div>
+      <label>Body fat (%) <span class="help">optional</span>
+        <input type="number" id="body_fat_pct" value="" min="2" max="60"></label>
+    </div>
+    <div>
+      <label>Resting HR <span class="help">optional</span>
+        <input type="number" id="resting_hr" value="60" min="30" max="100"></label>
+    </div>
+  </div>
+  <div class="row3">
+    <div>
+      <label>Waist (cm) <span class="help">optional, for Navy BF%</span>
+        <input type="number" id="waist_cm" value="" min="50" max="180"></label>
+    </div>
+    <div>
+      <label>Neck (cm) <span class="help">optional, for Navy BF%</span>
+        <input type="number" id="neck_cm" value="" min="25" max="60"></label>
+    </div>
+    <div>
+      <label>Hip (cm, female only) <span class="help">optional</span>
+        <input type="number" id="hip_cm" value="" min="60" max="180"></label>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>2. PAR-Q+ Pre-Screening</h2>
+  <h3>Any "Yes" should trigger physician clearance before vigorous training</h3>
+  <label><input type="checkbox" class="parq" data-id="parq_1">
+    Has your doctor ever said you have a heart condition?</label>
+  <label><input type="checkbox" class="parq" data-id="parq_2">
+    Do you feel chest pain during physical activity?</label>
+  <label><input type="checkbox" class="parq" data-id="parq_3">
+    In the past month, have you had chest pain when NOT active?</label>
+  <label><input type="checkbox" class="parq" data-id="parq_4">
+    Do you lose your balance due to dizziness?</label>
+  <label><input type="checkbox" class="parq" data-id="parq_5">
+    Do you have a bone or joint problem that could be worsened by activity?</label>
+  <label><input type="checkbox" class="parq" data-id="parq_6">
+    Are you on medication for blood pressure or heart condition?</label>
+  <label><input type="checkbox" class="parq" data-id="parq_7">
+    Is there any other reason you should not do physical activity?</label>
+</div>
+
+<div class="panel">
+  <h2>3. Lifestyle</h2>
+  <div class="row3">
+    <div>
+      <label>Activity level
+        <select id="activity">
+          <option value="sedentary">Sedentary (desk job)</option>
+          <option value="light" selected>Light (1-3 walks/wk)</option>
+          <option value="moderate">Moderate (active 3-5x/wk)</option>
+          <option value="very_active">Very active (physical job)</option>
+          <option value="athlete">Athlete (multi-daily training)</option>
+        </select>
+      </label>
+    </div>
+    <div>
+      <label>Sleep hours
+        <input type="number" id="sleep_hours" value="7.5" min="0" max="14" step="0.5">
+      </label>
+    </div>
+    <div>
+      <label>Stress (1=calm, 10=overwhelmed)
+        <input type="number" id="stress_level" value="5" min="1" max="10">
+      </label>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>4. Health Conditions</h2>
+  <h3>Select all that apply</h3>
+  <div class="checkbox-row">
+    <label><input type="checkbox" class="hc" value="t2_diabetes"> Type 2 diabetes</label>
+    <label><input type="checkbox" class="hc" value="pre_diabetes"> Pre-diabetes</label>
+    <label><input type="checkbox" class="hc" value="hypertension"> Hypertension</label>
+    <label><input type="checkbox" class="hc" value="high_cholesterol"> High cholesterol</label>
+    <label><input type="checkbox" class="hc" value="pcos"> PCOS</label>
+    <label><input type="checkbox" class="hc" value="hypothyroidism"> Hypothyroidism</label>
+    <label><input type="checkbox" class="hc" value="joint_knee"> Knee joint issue</label>
+    <label><input type="checkbox" class="hc" value="joint_shoulder"> Shoulder joint issue</label>
+    <label><input type="checkbox" class="hc" value="lower_back"> Lower back issue</label>
+    <label><input type="checkbox" class="hc" value="cardio_limited"> Cardiovascular limitation</label>
+    <label><input type="checkbox" class="hc" value="celiac"> Celiac disease</label>
+    <label><input type="checkbox" class="hc" value="ibs"> IBS</label>
+    <label><input type="checkbox" class="hc" value="pregnancy"> Pregnant</label>
+    <label><input type="checkbox" class="hc" value="postpartum"> Postpartum (&lt;12 mo)</label>
+  </div>
+  <label>Medications <span class="help">free text, "none" if N/A</span>
+    <input type="text" id="medications" value=""></label>
+  <label>Injuries <span class="help">free text</span>
+    <input type="text" id="injuries" value=""></label>
+</div>
+
+<div class="panel">
+  <h2>5. Diet</h2>
+  <div class="row3">
+    <div>
+      <label>Dietary pattern
+        <select id="dietary_preference">
+          <option value="omnivore">Omnivore</option>
+          <option value="pescatarian">Pescatarian</option>
+          <option value="pollo_pescatarian">Pollo-pescatarian</option>
+          <option value="vegetarian">Vegetarian</option>
+          <option value="vegan">Vegan</option>
+          <option value="keto">Ketogenic</option>
+          <option value="mediterranean" selected>Mediterranean</option>
+          <option value="low_fodmap">Low-FODMAP</option>
+          <option value="halal">Halal</option>
+          <option value="kosher">Kosher</option>
+          <option value="flexible">Flexible</option>
+        </select>
+      </label>
+    </div>
+    <div>
+      <label>Meals per day
+        <select id="meals_per_day">
+          <option value="3">3 meals</option>
+          <option value="4" selected>4 meals (3 + snack)</option>
+          <option value="5">5 meals (3 + 2 snacks)</option>
+          <option value="1">OMAD</option>
+        </select>
+      </label>
+    </div>
+    <div>
+      <label>Cooking skill
+        <select id="cooking_skill">
+          <option value="basic">Basic</option>
+          <option value="intermediate" selected>Intermediate</option>
+          <option value="advanced">Advanced</option>
+        </select>
+      </label>
+    </div>
+  </div>
+  <label>Allergies (comma-separated)
+    <input type="text" id="allergies" value=""></label>
+  <label>Dislikes (comma-separated)
+    <input type="text" id="dislikes" value=""></label>
+  <h3>Preferred cuisines</h3>
+  <div class="checkbox-row">
+    <label><input type="checkbox" class="cuisine" value="american"> American</label>
+    <label><input type="checkbox" class="cuisine" value="mediterranean" checked> Mediterranean</label>
+    <label><input type="checkbox" class="cuisine" value="asian"> Asian</label>
+    <label><input type="checkbox" class="cuisine" value="indian"> Indian</label>
+    <label><input type="checkbox" class="cuisine" value="mexican"> Mexican</label>
+    <label><input type="checkbox" class="cuisine" value="middle_eastern"> Middle Eastern</label>
+    <label><input type="checkbox" class="cuisine" value="african"> African</label>
+    <label><input type="checkbox" class="cuisine" value="nordic"> Nordic</label>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>6. Training</h2>
+  <div class="row3">
+    <div>
+      <label>Experience level
+        <select id="experience">
+          <option value="novice">Novice (&lt;3 mo)</option>
+          <option value="beginner" selected>Beginner (3-12 mo)</option>
+          <option value="intermediate">Intermediate (1-3 yr)</option>
+          <option value="advanced">Advanced (3-5 yr)</option>
+          <option value="elite">Elite (5+ yr)</option>
+        </select>
+      </label>
+    </div>
+    <div>
+      <label>Environment
+        <select id="environment">
+          <option value="home_bodyweight">Home (bodyweight only)</option>
+          <option value="home_minimal">Home (bands + dumbbells)</option>
+          <option value="home_full">Home (full gym)</option>
+          <option value="gym_commercial" selected>Commercial gym</option>
+          <option value="gym_full">Specialised gym</option>
+          <option value="hybrid">Hybrid</option>
+          <option value="outdoor">Outdoor</option>
+        </select>
+      </label>
+    </div>
+    <div>
+      <label>Session length
+        <select id="session_length">
+          <option value="express_30">~30 min (express)</option>
+          <option value="short_45">~45 min (short)</option>
+          <option value="standard_60" selected>~60 min (standard)</option>
+          <option value="extended_90">~90 min (extended)</option>
+        </select>
+      </label>
+    </div>
+  </div>
+  <label>Days per week available
+    <input type="number" id="days_per_week" value="4" min="1" max="7"></label>
+  <h3>Available equipment</h3>
+  <div class="checkbox-row">
+    <label><input type="checkbox" class="eq" value="barbell" checked> Barbell</label>
+    <label><input type="checkbox" class="eq" value="bench" checked> Bench</label>
+    <label><input type="checkbox" class="eq" value="dumbbells" checked> Dumbbells</label>
+    <label><input type="checkbox" class="eq" value="kettlebells"> Kettlebells</label>
+    <label><input type="checkbox" class="eq" value="bands"> Resistance bands</label>
+    <label><input type="checkbox" class="eq" value="machine" checked> Cable/machines</label>
+    <label><input type="checkbox" class="eq" value="cardio_machine" checked> Cardio machine</label>
+    <label><input type="checkbox" class="eq" value="box"> Plyo box</label>
+    <label><input type="checkbox" class="eq" value="pullup_bar" checked> Pull-up bar</label>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>7. Goals</h2>
+  <div class="row3">
+    <div>
+      <label>Primary goal
+        <select id="primary_goal">
+          <option value="fat_loss" selected>Fat loss</option>
+          <option value="muscle_gain">Build muscle</option>
+          <option value="recomposition">Recomposition</option>
+          <option value="strength">Get stronger</option>
+          <option value="endurance">Improve endurance</option>
+          <option value="general_health">General health</option>
+          <option value="athletic_performance">Athletic performance</option>
+          <option value="rehabilitation">Rehabilitation</option>
+        </select>
+      </label>
+    </div>
+    <div>
+      <label>Target weight (kg) <span class="help">optional</span>
+        <input type="number" id="target_weight_kg" value=""></label>
+    </div>
+    <div>
+      <label>Timeline (weeks)
+        <input type="number" id="timeline_weeks" value="12" min="4" max="104"></label>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <button type="button" class="btn" onclick="generateJSON()">Generate Profile JSON</button>
+  <button type="button" class="btn btn-secondary" onclick="downloadJSON()">Download JSON</button>
+  <button type="button" class="btn btn-secondary" onclick="copyJSON()">Copy to clipboard</button>
+</div>
+
+<div class="panel">
+  <h2>Output</h2>
+  <div id="parq-alert"></div>
+  <pre class="output-pre" id="output">Click "Generate Profile JSON" to build the profile.</pre>
+</div>
+
+</form>
+
+<script>
+// ------------------------------------------------------------------ //
+// Curated archetypes                                                  //
+// ------------------------------------------------------------------ //
+const ARCHETYPES = [
+  { id: "desk_bound", name: "Desk-Bound Reset", desc: "Fat loss, sedentary, beginner",
+    defaults: { sex:"female", age:34, height_cm:168, weight_kg:72, body_fat_pct:32,
+      activity:"sedentary", experience:"beginner", environment:"gym_commercial",
+      dietary_preference:"mediterranean", primary_goal:"fat_loss", days_per_week:4,
+      session_length:"standard_60", meals_per_day:4 } },
+  { id: "hard_gainer", name: "Classic Hard Gainer", desc: "Muscle gain, ectomorph",
+    defaults: { sex:"male", age:22, height_cm:180, weight_kg:64, body_fat_pct:11,
+      activity:"light", experience:"intermediate", environment:"gym_commercial",
+      dietary_preference:"omnivore", primary_goal:"muscle_gain", days_per_week:4,
+      session_length:"standard_60", meals_per_day:4 } },
+  { id: "vital_retiree", name: "Vital Retiree", desc: "60+ senior strength",
+    defaults: { sex:"male", age:64, height_cm:175, weight_kg:80, body_fat_pct:22,
+      activity:"light", experience:"novice", environment:"gym_commercial",
+      dietary_preference:"mediterranean", primary_goal:"strength", days_per_week:3,
+      session_length:"standard_60", meals_per_day:3 } },
+  { id: "keto_cruiser", name: "Keto Cruiser", desc: "Maintenance on keto",
+    defaults: { sex:"male", age:38, height_cm:178, weight_kg:82, body_fat_pct:18,
+      activity:"moderate", experience:"intermediate", environment:"gym_commercial",
+      dietary_preference:"keto", primary_goal:"general_health", days_per_week:4,
+      session_length:"standard_60", meals_per_day:3 } },
+  { id: "vegan_athlete", name: "Plant-Powered Performer", desc: "Vegan athlete",
+    defaults: { sex:"male", age:27, height_cm:178, weight_kg:74, body_fat_pct:12,
+      activity:"very_active", experience:"intermediate", environment:"hybrid",
+      dietary_preference:"vegan", primary_goal:"athletic_performance", days_per_week:5,
+      session_length:"standard_60", meals_per_day:5 } },
+  { id: "pcos_balancer", name: "PCOS Balancer", desc: "PCOS fat-loss",
+    defaults: { sex:"female", age:29, height_cm:165, weight_kg:80, body_fat_pct:36,
+      activity:"sedentary", experience:"beginner", environment:"gym_commercial",
+      dietary_preference:"mediterranean", primary_goal:"fat_loss", days_per_week:4,
+      session_length:"standard_60", meals_per_day:4 } }
+];
+
+const grid = document.getElementById("archetype-grid");
+ARCHETYPES.forEach(a => {
+  const card = document.createElement("div");
+  card.className = "archetype-card";
+  card.innerHTML = '<div class="name">' + a.name + '</div>' +
+                   '<div class="desc">' + a.desc + '</div>';
+  card.onclick = () => {
+    document.querySelectorAll(".archetype-card").forEach(c => c.classList.remove("selected"));
+    card.classList.add("selected");
+    Object.entries(a.defaults).forEach(([k,v]) => {
+      const el = document.getElementById(k);
+      if (el) el.value = v;
+    });
+  };
+  grid.appendChild(card);
+});
+
+// ------------------------------------------------------------------ //
+// Build profile                                                       //
+// ------------------------------------------------------------------ //
+function buildProfile() {
+  const parq = {};
+  document.querySelectorAll(".parq").forEach(cb => {
+    parq[cb.dataset.id] = cb.checked ? "yes" : "no";
+  });
+  const hc = Array.from(document.querySelectorAll(".hc:checked")).map(c => c.value);
+  const cuisines = Array.from(document.querySelectorAll(".cuisine:checked")).map(c => c.value);
+  const equipment = Array.from(document.querySelectorAll(".eq:checked")).map(c => c.value);
+  const allergies = document.getElementById("allergies").value
+    .split(",").map(s => s.trim()).filter(Boolean);
+  const dislikes = document.getElementById("dislikes").value
+    .split(",").map(s => s.trim()).filter(Boolean);
+
+  const profile = {
+    name: document.getElementById("name").value || "New Client",
+    age: parseInt(document.getElementById("age").value),
+    sex: document.getElementById("sex").value,
+    height_cm: parseFloat(document.getElementById("height_cm").value),
+    weight_kg: parseFloat(document.getElementById("weight_kg").value),
+    body_fat_pct: valOrNull("body_fat_pct"),
+    waist_cm: valOrNull("waist_cm"),
+    neck_cm: valOrNull("neck_cm"),
+    hip_cm: valOrNull("hip_cm"),
+    resting_hr: parseInt(document.getElementById("resting_hr").value) || 60,
+    activity: document.getElementById("activity").value,
+    sleep_hours: parseFloat(document.getElementById("sleep_hours").value),
+    stress_level: parseInt(document.getElementById("stress_level").value),
+    health_conditions: hc,
+    medications: document.getElementById("medications").value,
+    injuries: document.getElementById("injuries").value,
+    parq_answers: parq,
+    dietary_preference: document.getElementById("dietary_preference").value,
+    allergies: allergies,
+    dislikes: dislikes,
+    meals_per_day: parseInt(document.getElementById("meals_per_day").value),
+    cooking_skill: document.getElementById("cooking_skill").value,
+    preferred_cuisines: cuisines,
+    experience: document.getElementById("experience").value,
+    environment: document.getElementById("environment").value,
+    equipment: equipment,
+    days_per_week: parseInt(document.getElementById("days_per_week").value),
+    session_length: document.getElementById("session_length").value,
+    primary_goal: document.getElementById("primary_goal").value,
+    secondary_goals: [],
+    target_weight_kg: valOrNull("target_weight_kg"),
+    timeline_weeks: parseInt(document.getElementById("timeline_weeks").value),
+  };
+  return profile;
+}
+
+function valOrNull(id) {
+  const v = document.getElementById(id).value;
+  if (v === "" || v === null || v === undefined) return null;
+  const n = parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+function generateJSON() {
+  const profile = buildProfile();
+  // PAR-Q alert
+  const parqYes = Object.entries(profile.parq_answers).filter(([k,v]) => v === "yes").length;
+  const parqAlert = document.getElementById("parq-alert");
+  if (parqYes > 0) {
+    parqAlert.innerHTML = '<div class="alert warn"><b>PAR-Q:</b> ' +
+      parqYes + ' positive response(s). Physician clearance recommended.</div>';
+  } else {
+    parqAlert.innerHTML = '<div class="alert good"><b>PAR-Q:</b> All clear.</div>';
+  }
+  document.getElementById("output").textContent = JSON.stringify(profile, null, 2);
+  return profile;
+}
+
+function downloadJSON() {
+  const profile = generateJSON();
+  const blob = new Blob([JSON.stringify(profile, null, 2)],
+    {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = (profile.name || "client").toLowerCase().replace(/\s+/g, "_") + ".json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function copyJSON() {
+  const profile = generateJSON();
+  const text = JSON.stringify(profile, null, 2);
+  navigator.clipboard.writeText(text).then(() => {
+    const o = document.getElementById("output");
+    o.textContent = text + "\n\n(Copied to clipboard)";
+  });
+}
+</script>
+</body>
+</html>

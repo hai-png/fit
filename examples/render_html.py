@@ -1,0 +1,270 @@
+"""
+render_html.py
+==============
+
+Take a ClientProfile (or a JSON file) and render a beautiful, printable
+HTML plan that can be saved, emailed, or printed for the client.
+
+Usage:
+    python3 examples/render_html.py examples/sample_client.json output/sara_plan.html
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from html import escape
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from fitness_engine import ClientProfile, Recommender
+
+
+# --------------------------------------------------------------------------- #
+# CSS (inline so the file works fully offline / in iframes)                    #
+# --------------------------------------------------------------------------- #
+CSS = """
+:root {
+  --bg: #f7f8fa; --panel: #fff; --ink: #1f2937; --muted: #6b7280;
+  --accent: #2f6fed; --accent-2: #e8f0ff; --warn: #b91c1c; --note: #0369a1;
+  --good: #15803d;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 32px; background: var(--bg); color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+               Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px; line-height: 1.55;
+}
+header { background: var(--accent); color: white; padding: 24px 32px;
+  border-radius: 12px; margin-bottom: 24px; }
+header h1 { margin: 0 0 6px 0; font-size: 26px; }
+header .meta { font-size: 13px; opacity: 0.92; }
+.signature { display: inline-block; background: rgba(255,255,255,0.18);
+  padding: 4px 10px; border-radius: 6px; margin-top: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.panel { background: var(--panel); border: 1px solid #e5e7eb;
+  border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+.panel h2 { margin: 0 0 12px 0; font-size: 16px; color: var(--accent); }
+.panel h3 { margin: 16px 0 6px 0; font-size: 13px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #f3f4f6; }
+th { background: #f9fafb; color: var(--muted); font-weight: 600; }
+.kpi { display: flex; align-items: baseline; gap: 8px; }
+.kpi .v { font-size: 22px; font-weight: 700; color: var(--ink); }
+.kpi .u { color: var(--muted); font-size: 12px; }
+.bar { height: 8px; background: #eef2ff; border-radius: 6px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--accent); }
+ul { padding-left: 18px; margin: 6px 0; }
+li { margin: 3px 0; }
+.warn { color: var(--warn); }
+.note { color: var(--note); }
+.good { color: var(--good); }
+.tag { display: inline-block; background: var(--accent-2); color: var(--accent);
+  padding: 1px 8px; border-radius: 4px; font-size: 12px; margin-right: 4px; }
+.day { font-weight: 700; color: var(--accent); margin: 8px 0 4px 0; }
+.exercise { display: grid; grid-template-columns: 1.4fr 0.8fr 0.5fr;
+  font-size: 13px; padding: 4px 0; border-bottom: 1px dotted #e5e7eb; }
+.exercise:last-child { border-bottom: none; }
+.recipe { background: #f9fafb; padding: 6px 10px; border-left: 3px solid var(--accent);
+  margin: 4px 0 8px 0; font-size: 12px; color: var(--muted); }
+footer { color: var(--muted); font-size: 12px; text-align: center;
+  margin-top: 24px; }
+@media print { body { background: white; padding: 12px; } .panel { break-inside: avoid; } }
+"""
+
+
+def render(rec, client_name: str = "Client") -> str:
+    bc = rec.body_composition
+    e = rec.energy
+    m = rec.nutrition.macros
+    t = rec.training
+    n = rec.nutrition
+
+    html = ['<!doctype html><html><head><meta charset="utf-8">']
+    html.append(f"<title>{escape(client_name)} - Personalised Plan</title>")
+    html.append(f"<style>{CSS}</style></head><body>")
+
+    # Header
+    html.append('<header>')
+    html.append(f'<h1>Personalised Plan for {escape(client_name)}</h1>')
+    html.append('<div class="meta">')
+    html.append(
+        f"Archetype signature: <span class=\"signature\">"
+        f"{escape(rec.archetype_signature)}</span>"
+    )
+    html.append('</div></header>')
+
+    # KPI row
+    html.append('<div class="grid-3">')
+    html.append(f'''<div class="panel">
+      <h3>Body Composition</h3>
+      <div class="kpi"><span class="v">{bc.bmi}</span><span class="u">BMI ({bc.bmi_category})</span></div>
+      <div class="kpi"><span class="v">{bc.body_fat_pct}%</span><span class="u">body fat</span></div>
+      <div class="kpi"><span class="v">{bc.lean_mass_kg}</span><span class="u">kg lean mass</span></div>
+    </div>''')
+    html.append(f'''<div class="panel">
+      <h3>Energy & Macros</h3>
+      <div class="kpi"><span class="v">{e.calorie_target:.0f}</span><span class="u">kcal target</span></div>
+      <div class="kpi"><span class="v">{m.protein_g:.0f}g</span><span class="u">protein ({m.protein_pct}%)</span></div>
+      <div class="kpi"><span class="v">{m.carbs_g:.0f}g</span><span class="u">carbs ({m.carbs_pct}%)</span></div>
+      <div class="kpi"><span class="v">{m.fat_g:.0f}g</span><span class="u">fat ({m.fat_pct}%)</span></div>
+    </div>''')
+    html.append(f'''<div class="panel">
+      <h3>Training</h3>
+      <div class="kpi"><span class="v">{t.weekly_volume.total_sets}</span><span class="u">sets / week</span></div>
+      <div class="kpi"><span class="v">{t.periodisation.scheme}</span><span class="u">periodisation</span></div>
+      <div class="kpi"><span class="v">{t.cardio_prescription.get("weekly_cardio_minutes","-")}</span><span class="u">min cardio / wk</span></div>
+      <div class="kpi"><span class="v">{n.hydration.total_ml:.0f}</span><span class="u">ml water / day</span></div>
+    </div>''')
+    html.append('</div>')
+
+    # Warnings / notes
+    if rec.warnings or rec.notes:
+        html.append('<div class="panel"><h2>Coaching Notes</h2>')
+        for w in rec.warnings:
+            html.append(f'<div class="warn">! {escape(w)}</div>')
+        for note in rec.notes:
+            html.append(f'<div class="note">i {escape(note)}</div>')
+        html.append('</div>')
+
+    # Training split visualisation
+    html.append('<div class="panel"><h2>Training Split</h2>')
+    sp = t.split
+    parts = [("Strength", sp.strength_pct),
+             ("Hypertrophy", sp.hypertrophy_pct),
+             ("Cardio", sp.cardio_pct),
+             ("Mobility", sp.mobility_pct)]
+    html.append('<div style="display:flex;height:24px;border-radius:6px;overflow:hidden;">')
+    palette = ["#1e40af", "#2563eb", "#3b82f6", "#93c5fd"]
+    for (label, pct), col in zip(parts, palette):
+        html.append(f'<div title="{label} {pct*100:.0f}%" '
+                    f'style="background:{col};width:{pct*100:.1f}%;'
+                    f'display:flex;align-items:center;justify-content:center;'
+                    f'color:white;font-size:11px;">{label[:4]} {pct*100:.0f}%</div>')
+    html.append('</div>')
+    html.append(f'<h3>Volume per muscle group (sets/week)</h3>')
+    html.append('<table>')
+    for grp, sets_ in t.weekly_volume.per_muscle_group.items():
+        html.append(f'<tr><td>{grp.title()}</td>'
+                    f'<td><div class="bar"><span style="width:{min(100, sets_*8)}%"></span></div></td>'
+                    f'<td style="text-align:right">{sets_}</td></tr>')
+    html.append('</table>')
+    html.append(f'<h3>Intensity</h3>')
+    html.append(f'<p>Primary lifts: <b>{t.intensity.primary_reps}</b> @ '
+                f'RPE {t.intensity.primary_rpe} | '
+                f'Accessories: <b>{t.intensity.accessory_reps}</b> @ '
+                f'RPE {t.intensity.accessory_rpe}</p>')
+    html.append(f'<h3>Progression</h3>')
+    html.append(f'<p>{t.progression.primary}<br>{t.progression.rule}</p>')
+    html.append('</div>')
+
+    # Schedule
+    html.append('<div class="panel"><h2>Weekly Schedule</h2>')
+    for day, exs in t.weekly_schedule.items():
+        html.append(f'<div class="day">{day}</div>')
+        for ex in exs:
+            html.append(
+                f'<div class="exercise">'
+                f'<div><b>{escape(ex["name"])}</b><br>'
+                f'<small>{ex["primary_muscle"]}</small></div>'
+                f'<div>{ex["sets_reps"]}<br><small>RPE {ex["rpe"]}</small></div>'
+                f'<div>{" | ".join(ex["equipment"])}</div>'
+                f'</div>'
+            )
+    html.append('</div>')
+
+    # Warm-up / Cool-down
+    html.append('<div class="grid">')
+    html.append('<div class="panel"><h2>Warm-up</h2><ul>')
+    for s in t.warmup_protocol:
+        html.append(f'<li>{escape(s)}</li>')
+    html.append('</ul></div>')
+    html.append('<div class="panel"><h2>Cool-down</h2><ul>')
+    for s in t.cooldown_protocol:
+        html.append(f'<li>{escape(s)}</li>')
+    html.append('</ul></div>')
+    html.append('</div>')
+
+    # Cardio
+    html.append('<div class="panel"><h2>Cardio Prescription</h2>')
+    html.append('<table>')
+    for k, v in t.cardio_prescription.items():
+        html.append(f'<tr><th>{k.replace("_"," ").title()}</th><td>{escape(v)}</td></tr>')
+    html.append('</table>')
+    html.append('<h3>Heart-rate Zones (Karvonen)</h3>')
+    html.append('<table><tr><th>Zone</th><th>Range</th></tr>')
+    for name, (lo, hi) in t.cardio_zones.zones.items():
+        html.append(f'<tr><td>{name.replace("_"," ").title()}</td>'
+                    f'<td>{lo:.0f} - {hi:.0f} bpm</td></tr>')
+    html.append('</table></div>')
+
+    # Meal plan
+    html.append('<div class="panel"><h2>Meal Plan</h2>')
+    html.append(f'<p>Cuisines: {" | ".join(n.cuisine)}</p>')
+    for meal in n.meal_plan.meals:
+        html.append(f'<div class="day">{meal.slot.title()}</div>')
+        html.append(f'<b>{escape(meal.name)}</b> '
+                    f'<span class="tag">{meal.calories:.0f} kcal</span> '
+                    f'<span class="tag">P {meal.protein_g:.0f}</span> '
+                    f'<span class="tag">C {meal.carbs_g:.0f}</span> '
+                    f'<span class="tag">F {meal.fat_g:.0f}</span>')
+        if meal.recipe:
+            html.append(f'<div class="recipe">{escape(meal.recipe)}</div>')
+    html.append('</div>')
+
+    # Supplements
+    html.append('<div class="panel"><h2>Supplement Stack</h2>')
+    for section in ("foundational", "goal_specific", "conditional"):
+        items = n.supplements.get(section, [])
+        if not items:
+            continue
+        html.append(f'<h3>{section.replace("_"," ").title()}</h3>')
+        html.append('<table><tr><th>Name</th><th>Dose</th><th>Rationale</th></tr>')
+        for nm, dose, why in items:
+            html.append(f'<tr><td>{escape(nm)}</td>'
+                        f'<td>{escape(dose)}</td>'
+                        f'<td>{escape(why)}</td></tr>')
+        html.append('</table>')
+    html.append('</div>')
+
+    # Overrides
+    if n.overrides:
+        html.append('<div class="panel"><h2>Medical / Dietary Overrides</h2>')
+        html.append('<table>')
+        for k, v in n.overrides.items():
+            html.append(f'<tr><th>{k}</th><td>{escape(v)}</td></tr>')
+        html.append('</table></div>')
+
+    html.append(f'<footer>Generated by Fitness Engine | '
+                f'{escape(rec.archetype_signature)} | '
+                f'Target: {e.calorie_target:.0f} kcal | '
+                f'Volume: {t.weekly_volume.total_sets} sets/wk</footer>')
+    html.append('</body></html>')
+    return "\n".join(html)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("profile", help="path to client JSON")
+    parser.add_argument("output",  help="path to output HTML")
+    args = parser.parse_args()
+
+    with open(args.profile) as fh:
+        data = json.load(fh)
+    profile = ClientProfile.from_dict(data)
+    rec = Recommender(profile).recommend()
+
+    html = render(rec, data.get("name", "Client"))
+    with open(args.output, "w") as fh:
+        fh.write(html)
+    print(f"Wrote {args.output}  ({len(html):,} bytes)")
+
+
+if __name__ == "__main__":
+    main()
