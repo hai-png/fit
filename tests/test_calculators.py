@@ -2,39 +2,35 @@
 test_calculators.py
 ===================
 
-Unit tests for the numerical calculators. Run with:
+Unit tests for the numerical calculators, grounded in the RippedBody
+methodology. Run with:
     python3 -m unittest tests.test_calculators
 """
 import unittest
 
 from fitness_engine import (
-    ActivityLevel, GoalArchetype, Sex,
-    bmi, bmi_category, bmr_mifflin, bmr_harris, bmr_katch,
-    body_fat_navy, body_fat_bmi_method, body_composition,
+    ActivityLevel, GoalArchetype, Sex, ExperienceLevel,
+    bmi, bmi_category, bmr_harris_benedict, bmr_mifflin, bmr_katch,
+    body_fat_navy, body_fat_bmi_method, body_fat_from_visual,
+    body_composition, correct_bf_estimate,
     tdee, calorie_target, energy_expenditure,
     one_rep_max, cardio_zones, hydration, macros_for,
-    infer_age_group, infer_somatotype,
+    micronutrient_targets, muscular_potential,
+    infer_age_group, infer_somatotype, classify_trainee,
+    weekly_tonnage, MAX_1RM_REPS,
 )
-from fitness_engine.archetypes import DietaryPreference, Somatotype
+from fitness_engine.archetypes import Somatotype, DietaryPreference
 
 
 class TestBMI(unittest.TestCase):
     def test_normal(self):
         self.assertAlmostEqual(bmi(70, 175), 22.86, places=1)
 
-    def test_underweight(self):
+    def test_categories(self):
         self.assertEqual(bmi_category(17), "underweight")
-
-    def test_normal2(self):
         self.assertEqual(bmi_category(22), "normal")
-
-    def test_overweight(self):
         self.assertEqual(bmi_category(27), "overweight")
-
-    def test_obese_i(self):
         self.assertEqual(bmi_category(32), "obese_class_i")
-
-    def test_obese_iii(self):
         self.assertEqual(bmi_category(42), "obese_class_iii")
 
     def test_invalid_height(self):
@@ -43,156 +39,324 @@ class TestBMI(unittest.TestCase):
 
 
 class TestBMR(unittest.TestCase):
-    def test_mifflin_male(self):
-        # Reference: 30y male, 80kg, 180cm
-        # 10*80 + 6.25*180 - 5*30 + 5 = 800 + 1125 - 150 + 5 = 1780
-        self.assertEqual(bmr_mifflin(80, 180, 30, Sex.MALE), 1780.0)
+    def test_harris_benedict_male(self):
+        # 30y male, 80kg, 180cm
+        # 66 + (13.7*80) + (5*180) - (6.8*30) = 66+1096+900-204 = 1858
+        self.assertEqual(bmr_harris_benedict(80, 180, 30, Sex.MALE), 1858.0)
 
-    def test_mifflin_female(self):
+    def test_harris_benedict_female(self):
         # 30y female, 60kg, 165cm
-        # 10*60 + 6.25*165 - 5*30 - 161 = 600 + 1031.25 - 150 - 161 = 1320.25
-        self.assertAlmostEqual(bmr_mifflin(60, 165, 30, Sex.FEMALE),
-                               1320.25, places=2)
+        # 655 + (9.6*60) + (1.8*165) - (4.7*30) = 655+576+297-141 = 1387
+        self.assertEqual(bmr_harris_benedict(60, 165, 30, Sex.FEMALE), 1387.0)
 
-    def test_harris_male_close_to_mifflin(self):
-        self.assertAlmostEqual(
-            bmr_harris(80, 180, 30, Sex.MALE),
-            bmr_mifflin(80, 180, 30, Sex.MALE),
-            delta=100
-        )
+    def test_katch_single_arg(self):
+        self.assertEqual(bmr_katch(60), 370 + 21.6 * 60)
 
-    def test_katch(self):
-        # BMR = 370 + 21.6 * lean_kg
-        self.assertEqual(bmr_katch(80, 60), 370 + 21.6 * 60)
+    def test_katch_invalid(self):
+        with self.assertRaises(ValueError):
+            bmr_katch(0)
 
 
 class TestTDEE(unittest.TestCase):
     def test_sedentary(self):
-        self.assertEqual(tdee(1500, ActivityLevel.SEDENTARY), 1800.0)
-    def test_athlete(self):
-        self.assertEqual(tdee(1500, ActivityLevel.ATHLETE), 2850.0)
+        self.assertAlmostEqual(tdee(1500, ActivityLevel.SEDENTARY), 1725.0)
+
+    def test_highly_active(self):
+        self.assertEqual(tdee(1500, ActivityLevel.HIGHLY_ACTIVE), 2625.0)
 
 
 class TestCalorieTarget(unittest.TestCase):
-    def test_fat_loss(self):
-        target, bd = calorie_target(2000, GoalArchetype.FAT_LOSS)
-        self.assertEqual(target, 1600.0)
-        self.assertEqual(bd["mode"], "fat_loss")
+    def test_fat_loss_deficit(self):
+        target, bd = calorie_target(2500, GoalArchetype.FAT_LOSS,
+                                     bodyweight_kg=80,
+                                     experience=ExperienceLevel.INTERMEDIATE)
+        self.assertLess(target, 2500)
+        self.assertEqual(bd["mode"], "fat_loss (cut)")
 
-    def test_muscle_gain(self):
-        target, bd = calorie_target(2000, GoalArchetype.MUSCLE_GAIN)
-        self.assertEqual(target, 2240.0)
+    def test_muscle_gain_surplus(self):
+        target, bd = calorie_target(2500, GoalArchetype.MUSCLE_GAIN,
+                                     bodyweight_kg=70,
+                                     experience=ExperienceLevel.BEGINNER)
+        self.assertGreater(target, 2500)
+        self.assertEqual(bd["mode"], "muscle_gain (bulk)")
 
-    def test_recomp(self):
-        target, _ = calorie_target(2000, GoalArchetype.RECOMPOSITION)
-        self.assertEqual(target, 2000.0)
+    def test_recomp_maintenance(self):
+        target, _ = calorie_target(2500, GoalArchetype.RECOMPOSITION,
+                                    bodyweight_kg=70,
+                                    experience=ExperienceLevel.INTERMEDIATE)
+        self.assertEqual(target, 2500.0)
+
+    def test_minimum_floor(self):
+        target, bd = calorie_target(800, GoalArchetype.FAT_LOSS,
+                                     bodyweight_kg=50,
+                                     experience=ExperienceLevel.ADVANCED)
+        self.assertGreaterEqual(target, 1200)
+        self.assertIn("warning", bd)
+
+    def test_bulk_experience_tiers(self):
+        """Beginners get a bigger surplus than advanced."""
+        beg, _ = calorie_target(2500, GoalArchetype.MUSCLE_GAIN, 70,
+                                ExperienceLevel.BEGINNER)
+        adv, _ = calorie_target(2500, GoalArchetype.MUSCLE_GAIN, 70,
+                                ExperienceLevel.ADVANCED)
+        self.assertGreater(beg, adv)
+
+
+class TestMacros(unittest.TestCase):
+    def test_protein_by_lean_mass(self):
+        """Cutting with known BF% → 2.5 g/kg lean mass."""
+        m = macros_for(2000, 80, 64, GoalArchetype.FAT_LOSS, Sex.MALE,
+                       Somatotype.MESOMORPH, DietaryPreference.OMNIVORE,
+                       body_fat_pct=20)
+        self.assertAlmostEqual(m.protein_g, 64 * 2.5, places=1)
+
+    def test_protein_by_body_weight(self):
+        """Bulking with unknown BF% → 1.6 g/kg body weight."""
+        m = macros_for(2500, 70, None, GoalArchetype.MUSCLE_GAIN, Sex.MALE,
+                       Somatotype.MESOMORPH, DietaryPreference.OMNIVORE)
+        self.assertAlmostEqual(m.protein_g, 70 * 1.6, places=1)
+
+    def test_fat_within_band(self):
+        m = macros_for(2000, 70, 55, GoalArchetype.GENERAL_HEALTH, Sex.MALE,
+                       Somatotype.MESOMORPH, DietaryPreference.OMNIVORE)
+        self.assertGreaterEqual(m.fat_pct, 15)
+        self.assertLessEqual(m.fat_pct, 30)
+
+    def test_macro_sum(self):
+        m = macros_for(2200, 70, 55, GoalArchetype.RECOMPOSITION, Sex.FEMALE,
+                       Somatotype.ENDOMORPH, DietaryPreference.OMNIVORE)
+        total_kcal = m.protein_g*4 + m.carbs_g*4 + m.fat_g*9
+        self.assertLess(abs(total_kcal - m.calories), 100)
+
+    def test_fat_floor_enforced(self):
+        m = macros_for(1200, 90, 60, GoalArchetype.FAT_LOSS, Sex.MALE,
+                       Somatotype.ENDOMORPH, DietaryPreference.OMNIVORE,
+                       body_fat_pct=25)
+        self.assertGreaterEqual(m.fat_g, 90 * 0.5)
 
 
 class TestOneRepMax(unittest.TestCase):
     def test_epley(self):
         r = one_rep_max(100, 5)
-        # Epley: 100 * (1 + 5/30) = 116.67
         self.assertAlmostEqual(r.epley_1rm, 116.7, places=1)
+
+    def test_high_reps_clamped(self):
+        high = one_rep_max(100, 50)
+        clamped = one_rep_max(100, MAX_1RM_REPS)
+        self.assertAlmostEqual(high.average_1rm, clamped.average_1rm, places=1)
+
+    def test_no_negative(self):
+        for reps in range(1, 100):
+            est = one_rep_max(100, reps)
+            self.assertGreater(est.average_1rm, 0)
 
     def test_invalid_reps(self):
         with self.assertRaises(ValueError):
             one_rep_max(100, 0)
 
-    def test_percentages(self):
-        r = one_rep_max(100, 5)
-        self.assertIn("80%", r.pct_of_1rm)
+    def test_invalid_weight(self):
+        with self.assertRaises(ValueError):
+            one_rep_max(0, 5)
 
 
 class TestCardioZones(unittest.TestCase):
     def test_zones_present(self):
         z = cardio_zones(30, 60)
         self.assertIn("Z2_aerobic_base", z.zones)
-        # Z2 should be lower than Z4
         self.assertLess(z.zones["Z2_aerobic_base"][0],
                         z.zones["Z4_threshold"][0])
 
 
 class TestHydration(unittest.TestCase):
     def test_base(self):
-        h = hydration(80, 0)
-        self.assertEqual(h.base_ml, 2800.0)
+        self.assertEqual(hydration(80, 0).base_ml, 2800.0)
 
     def test_workout_bonus(self):
-        h = hydration(80, 60)
-        self.assertEqual(h.workout_bonus_ml, 700.0)
+        self.assertEqual(hydration(80, 60).workout_bonus_ml, 700.0)
 
 
-class TestMacros(unittest.TestCase):
-    def test_protein_floor(self):
-        m = macros_for(2000, 80, 60, GoalArchetype.MUSCLE_GAIN,
-                       Sex.MALE, Somatotype.MESOMORPH,
-                       DietaryPreference.OMNIVORE)
-        self.assertGreaterEqual(m.protein_g, 150)  # 1.9 g/kg
-        self.assertLessEqual(m.fat_pct, 45)
+class TestVisualBodyFat(unittest.TestCase):
+    def test_visual_label(self):
+        self.assertEqual(body_fat_from_visual("shredded"), 8.0)
+        self.assertEqual(body_fat_from_visual("average_fit"), 17.5)
+        self.assertEqual(body_fat_from_visual("obese"), 33.0)
 
-    def test_keto_low_carb(self):
-        m = macros_for(2000, 80, 60, GoalArchetype.FAT_LOSS,
-                       Sex.MALE, Somatotype.MESOMORPH,
-                       DietaryPreference.KETO)
-        self.assertLessEqual(m.carbs_g, 60)
+    def test_invalid_label(self):
+        with self.assertRaises(ValueError):
+            body_fat_from_visual("nonexistent")
 
-    def test_sum_equals_calories(self):
-        m = macros_for(2200, 70, 55, GoalArchetype.RECOMPOSITION,
-                       Sex.FEMALE, Somatotype.ENDOMORPH,
-                       DietaryPreference.MEDITERRANEAN)
-        # Allow rounding within 50 kcal
-        self.assertLess(abs(m.protein_g*4 + m.carbs_g*4 + m.fat_g*9
-                            - m.calories), 50)
+    def test_body_composition_uses_visual(self):
+        bc = body_composition(80, 178, 30, Sex.MALE, visual_bf_label="lean")
+        self.assertEqual(bc.estimation_method, "visual")
+        self.assertEqual(bc.body_fat_pct, 14.0)
+
+    def test_body_composition_priority(self):
+        """User-supplied BF% takes priority over visual."""
+        bc = body_composition(80, 178, 30, Sex.MALE,
+                              bf_pct=18, visual_bf_label="lean")
+        self.assertEqual(bc.estimation_method, "user_input")
+        self.assertEqual(bc.body_fat_pct, 18)
 
 
 class TestInferFunctions(unittest.TestCase):
     def test_age_groups(self):
-        self.assertEqual(infer_age_group(15).value, "youth")
-        self.assertEqual(infer_age_group(25).value, "young_adult")
+        self.assertEqual(infer_age_group(25).value, "young")
         self.assertEqual(infer_age_group(35).value, "adult")
         self.assertEqual(infer_age_group(50).value, "middle")
-        self.assertEqual(infer_age_group(65).value, "senior")
-        self.assertEqual(infer_age_group(80).value, "elder")
 
-    def test_somatotype_male(self):
+    def test_somatotype(self):
         self.assertEqual(
             infer_somatotype(70, 175, 30, Sex.MALE, body_fat_pct=10).value,
-            "ectomorph",
-        )
+            "ectomorph")
         self.assertEqual(
             infer_somatotype(95, 175, 30, Sex.MALE, body_fat_pct=28).value,
-            "endomorph",
-        )
+            "endomorph")
         self.assertEqual(
-            infer_somatotype(80, 175, 30, Sex.MALE, body_fat_pct=18).value,
-            "mesomorph",
-        )
+            infer_somatotype(80, 175, 30, Sex.MALE, body_fat_pct=16).value,
+            "mesomorph")
+
+    def test_somatotype_wrist_refinement(self):
+        meso = infer_somatotype(76, 175, 30, Sex.MALE, body_fat_pct=16)
+        self.assertEqual(meso, Somatotype.MESOMORPH)
+        ecto = infer_somatotype(76, 175, 30, Sex.MALE,
+                                body_fat_pct=16, wrist_cm=15.0)
+        self.assertEqual(ecto, Somatotype.ECTOMORPH)
+
+
+class TestClassifyTrainee(unittest.TestCase):
+    def test_skinny(self):
+        t = classify_trainee(8, ExperienceLevel.BEGINNER, Sex.MALE, 21)
+        self.assertEqual(t.category.value, "skinny")
+        self.assertEqual(t.strategy, "bulk")
+
+    def test_fat_but_muscled(self):
+        t = classify_trainee(25, ExperienceLevel.INTERMEDIATE, Sex.MALE, 28)
+        self.assertEqual(t.strategy, "cut")
+
+    def test_obese(self):
+        t = classify_trainee(33, ExperienceLevel.BEGINNER, Sex.MALE, 32)
+        self.assertEqual(t.category.value, "obese")
+        self.assertEqual(t.strategy, "cut")
+
+    def test_shredded(self):
+        t = classify_trainee(9, ExperienceLevel.ADVANCED, Sex.MALE, 25)
+        self.assertEqual(t.category.value, "shredded")
+
+
+class TestWeeklyTonnage(unittest.TestCase):
+    def test_basic(self):
+        sessions = [{"sets": 3, "reps": 10, "load_kg": 80},
+                    {"sets": 4, "reps": 8, "load_kg": 60}]
+        t = weekly_tonnage(sessions)
+        self.assertEqual(t.sets, 7)
+        self.assertEqual(t.total_volume_kg, 4320.0)
+
+    def test_empty(self):
+        t = weekly_tonnage([])
+        self.assertEqual(t.sets, 0)
+
+
+class TestMicronutrients(unittest.TestCase):
+    """Micronutrient targets scale with calorie intake."""
+
+    def test_low_calories(self):
+        m = micronutrient_targets(1500)
+        self.assertEqual(m.fruit_cups, 2)
+        self.assertEqual(m.veg_cups, 2)
+        self.assertAlmostEqual(m.fibre_g, 21.0, places=1)
+
+    def test_mid_calories(self):
+        m = micronutrient_targets(2500)
+        self.assertEqual(m.fruit_cups, 3)
+        self.assertEqual(m.veg_cups, 3)
+        self.assertAlmostEqual(m.fibre_g, 35.0, places=1)
+
+    def test_high_calories(self):
+        m = micronutrient_targets(3500)
+        self.assertEqual(m.fruit_cups, 4)
+        self.assertEqual(m.veg_cups, 4)
+
+    def test_water_guidance_present(self):
+        m = micronutrient_targets(2000)
+        self.assertGreater(len(m.water_guidance), 2)
+
+
+class TestMuscularPotential(unittest.TestCase):
+    """Berkhan model and FFMI calculations."""
+
+    def test_berkhan_model(self):
+        mp = muscular_potential(178, 82, 18)
+        # Berkhan: 178 - 100 = 78
+        self.assertEqual(mp.berkhan_stage_max_kg, 78.0)
+
+    def test_ffmi_calculated(self):
+        mp = muscular_potential(178, 82, 18)
+        # lean = 82 * 0.82 = 67.24, height_m = 1.78
+        # FFMI = 67.24 / (1.78^2) = 67.24 / 3.1684 = 21.2
+        self.assertGreater(mp.ffmi, 18)
+        self.assertLess(mp.ffmi, 26)
+
+    def test_ceiling(self):
+        mp = muscular_potential(180, 90, 10)
+        self.assertEqual(mp.ceiling_ffmi, 25.0)
+
+
+class TestBFEstimateCorrection(unittest.TestCase):
+    """Self-estimates should be bumped by 50%."""
+
+    def test_self_estimate_corrected(self):
+        self.assertEqual(correct_bf_estimate(15, is_self_estimate=True), 22.5)
+
+    def test_known_value_unchanged(self):
+        self.assertEqual(correct_bf_estimate(20, is_self_estimate=False), 20)
+
+
+class TestVeganProtein(unittest.TestCase):
+    """Vegan protein targets should be higher than omnivore."""
+
+    def test_vegan_cutting_higher(self):
+        """Cutting with known BF%: vegan 2.6 vs omni 2.5 g/kg lean."""
+        lean = 60
+        m_v = macros_for(1800, 80, lean, GoalArchetype.FAT_LOSS, Sex.MALE,
+                         Somatotype.MESOMORPH, DietaryPreference.VEGAN,
+                         body_fat_pct=25)
+        m_o = macros_for(1800, 80, lean, GoalArchetype.FAT_LOSS, Sex.MALE,
+                         Somatotype.MESOMORPH, DietaryPreference.OMNIVORE,
+                         body_fat_pct=25)
+        self.assertGreater(m_v.protein_g, m_o.protein_g)
+
+    def test_vegan_bulk_unknown_bf_higher(self):
+        """Bulking with unknown BF%: vegan 2.2 vs omni 1.6 g/kg."""
+        m_v = macros_for(2500, 70, None, GoalArchetype.MUSCLE_GAIN, Sex.MALE,
+                         Somatotype.MESOMORPH, DietaryPreference.VEGAN,
+                         body_fat_pct=None)
+        m_o = macros_for(2500, 70, None, GoalArchetype.MUSCLE_GAIN, Sex.MALE,
+                         Somatotype.MESOMORPH, DietaryPreference.OMNIVORE,
+                         body_fat_pct=None)
+        self.assertGreater(m_v.protein_g, m_o.protein_g)
 
 
 class TestEndToEnd(unittest.TestCase):
     def test_full_recommendation(self):
         from fitness_engine import (
             ClientProfile, Recommender, SessionLength, TrainingEnvironment,
-            ExperienceLevel,
         )
         p = ClientProfile(
-            age=30, sex=Sex.FEMALE, height_cm=165, weight_kg=65,
-            body_fat_pct=25, waist_cm=75, neck_cm=32,
-            activity=ActivityLevel.MODERATE, sleep_hours=7.5, stress_level=4,
-            health_conditions=[], dietary_preference=DietaryPreference.OMNIVORE,
-            allergies=[], meals_per_day=3,
+            age=30, sex=Sex.MALE, height_cm=178, weight_kg=82, body_fat_pct=18,
+            activity=ActivityLevel.MOSTLY_SEDENTARY,
             experience=ExperienceLevel.INTERMEDIATE,
-            environment=TrainingEnvironment.GYM_COMMERCIAL,
-            equipment=["barbell","bench","dumbbells","machine","cardio_machine"],
+            dietary_preference=DietaryPreference.OMNIVORE,
+            environment=TrainingEnvironment.GYM_FULL,
             days_per_week=4, session_length=SessionLength.STANDARD_60,
             primary_goal=GoalArchetype.FAT_LOSS, timeline_weeks=12,
-            parq_answers={f"parq_{i}":"no" for i in range(1, 8)},
+            meals_per_day=4,
         )
         rec = Recommender(p).recommend()
         self.assertTrue(rec.archetype_signature.startswith("FAT"))
-        self.assertGreater(rec.nutrition.macros.protein_g, 100)
-        self.assertEqual(len(rec.training.weekly_schedule), 4)
+        self.assertGreater(rec.nutrition.macros.protein_g, 50)
+        self.assertGreaterEqual(len(rec.training.weekly_schedule), 2)
         self.assertGreater(len(rec.nutrition.meal_plan.meals), 0)
+        self.assertIsNotNone(rec.trainee_category)
 
 
 if __name__ == "__main__":

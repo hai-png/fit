@@ -6,9 +6,9 @@ Command-line interface for the Fitness Engine.
 
 Usage:
     python -m fitness_engine.cli profile <input.json> [--out plan.html] [--format html|json|text]
-    python -m fitness_engine.cli showcase                       # run all curated archetypes
-    python -m fitness_engine.cli archetypes                     # list all curated archetypes
-    python -m fitness_engine.cli new <output.json>             # scaffold an empty profile JSON
+    python -m fitness_engine.cli showcase        # run all curated archetypes
+    python -m fitness_engine.cli archetypes      # list all curated archetypes
+    python -m fitness_engine.cli new <output.json>  # scaffold an empty profile
     python -m fitness_engine.cli --help
 """
 from __future__ import annotations
@@ -16,15 +16,14 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
-import os
 import sys
 from typing import Any, Dict
 
 from . import (
     ClientProfile, Recommender,
-    all_curated, get_curated, __version__,
+    all_curated, __version__,
 )
-from .meal_plans import MealItem, MEAL_LIBRARY
+from .meal_plans import MEAL_LIBRARY
 
 
 # --------------------------------------------------------------------------- #
@@ -41,34 +40,37 @@ def _format_plan_text(rec) -> str:
     out.append("")
     bc = rec.body_composition
     out.append(f"Body Composition: BMI {bc.bmi} ({bc.bmi_category}), "
-               f"BF {bc.body_fat_pct}%, lean {bc.lean_mass_kg} kg")
+               f"BF {bc.body_fat_pct}% [{bc.estimation_method}]")
+    tc = rec.trainee_category
+    out.append(f"Trainee Category: {tc.category.value} ({tc.strategy})")
+    out.append(f"  -> {tc.summary}")
     e = rec.energy
-    out.append(f"Energy: BMR {e.bmr_mifflin} | TDEE {e.tdee} | "
+    out.append(f"Energy: BMR {e.bmr} | TDEE {e.tdee} | "
                f"Target {e.calorie_target} kcal")
     m = rec.nutrition.macros
     out.append(f"Macros: {m.protein_g}P / {m.carbs_g}C / {m.fat_g}F "
                f"({m.calories} kcal)")
     t = rec.training
     out.append(f"Training: {t.weekly_volume.total_sets} sets/wk, "
-               f"{t.periodisation.scheme}")
+               f"{t.split.name}, {t.periodisation.scheme}")
     out.append(f"Cardio: {t.cardio_prescription.get('weekly_cardio_minutes')} min/wk")
     out.append("")
     for day, exs in t.weekly_schedule.items():
         out.append(f"{day}:")
         for e_ in exs:
-            out.append(f"  - {e_['name']} ({e_['sets_reps']} RPE {e_['rpe']})")
+            out.append(f"  - {e_['name']} ({e_['sets_reps']} RIR {e_['rir']})")
     out.append("")
     out.append("Meal plan:")
     for m_ in rec.nutrition.meal_plan.meals:
         out.append(f"  {m_.slot}: {m_.name} ({m_.calories:.0f} kcal)")
+    if rec.trainee_category.recommendations:
+        out.append("\nRecommendations:")
+        for r in rec.trainee_category.recommendations:
+            out.append(f"  i {r}")
     if rec.warnings:
         out.append("\nWarnings:")
         for w in rec.warnings:
             out.append(f"  ! {w}")
-    if rec.notes:
-        out.append("\nNotes:")
-        for n in rec.notes:
-            out.append(f"  i {n}")
     return "\n".join(out)
 
 
@@ -94,7 +96,6 @@ def cmd_profile(args) -> int:
     if args.format == "json":
         out = _format_plan_json(rec)
     elif args.format == "html":
-        # Import lazily so non-HTML paths don't pull in the renderer
         from examples.render_html import render
         out = render(rec, data.get("name", "Client"))
     else:
@@ -112,52 +113,40 @@ def cmd_profile(args) -> int:
 def cmd_showcase(args) -> int:
     print(f"Fitness Engine v{__version__} - archetype showcase")
     print()
-    fmt = "{:32s} {:32s} {:>6s} {:>5s} {:>5s} {:>5s} {:>5s} {:24s}"
-    print(fmt.format("Archetype", "Signature", "kcal", "P", "C", "F",
-                     "sets", "periodisation"))
-    print("-" * 110)
-    from . import (
-        ActivityLevel, Sex,
-        all_curated,
-    )
+    fmt = "{:28s} {:>6s} {:>5s} {:>5s} {:>5s} {:>5s} {:18s} {:14s}"
+    print(fmt.format("Archetype", "kcal", "P", "C", "F", "sets",
+                     "strategy", "split"))
+    print("-" * 95)
+
+    from . import Sex
     DEFAULTS = {
-        "The Desk-Bound Reset":         (34, Sex.FEMALE, 168, 72, 32),
-        "The Classic Hard Gainer":      (22, Sex.MALE,   180, 64, 11),
-        "The Reclaiming Parent":        (33, Sex.FEMALE, 165, 68, 27),
-        "The Vital Retiree":            (64, Sex.MALE,   175, 80, 22),
-        "The Metabolic Rebuild":        (52, Sex.MALE,   178, 102, 32),
-        "The Endurance Specialist":     (26, Sex.FEMALE, 170, 58, 16),
-        "The Plant-Powered Performer":  (27, Sex.MALE,   178, 74, 12),
-        "The Keto Cruiser":             (38, Sex.MALE,   178, 82, 18),
-        "The Shift-Worker":             (42, Sex.MALE,   174, 84, 24),
-        "The Back-Pain Returner":       (39, Sex.FEMALE, 167, 72, 30),
-        "The Youth Athlete":            (16, Sex.MALE,   175, 68, 12),
-        "The PCOS Balancer":            (29, Sex.FEMALE, 165, 80, 36),
+        "The Classic Hard Gainer":  (22, Sex.MALE,   180, 64, 11),
+        "The Muscled Cutter":       (35, Sex.MALE,   178, 92, 25),
+        "The Skinny-Fat Recomper":  (30, Sex.MALE,   175, 78, 22),
+        "The Home-Gym Beginner":    (45, Sex.FEMALE, 165, 68, 28),
+        "The Plant-Powered Builder":(27, Sex.MALE,   178, 74, 12),
     }
     for ap in all_curated():
         sig = ap.signature
         age, sex, ht, wt, bf = DEFAULTS[ap.nickname]
         p = ClientProfile(
             age=age, sex=sex, height_cm=ht, weight_kg=wt, body_fat_pct=bf,
-            waist_cm=bf+50, neck_cm=35,
-            activity=sig.activity, sleep_hours=7.0, stress_level=4,
-            health_conditions=[], dietary_preference=sig.diet,
-            allergies=[], meals_per_day=4,
+            activity=sig.activity,
+            dietary_preference=sig.diet,
             experience=sig.experience, environment=sig.environment,
-            equipment=["barbell","bench","dumbbells","machine",
-                       "cardio_machine","kettlebells","pullup_bar"],
             days_per_week=4, session_length=sig.session,
             primary_goal=sig.goal, timeline_weeks=12,
-            parq_answers={f"parq_{i}":"no" for i in range(1,8)},
+            meals_per_day=4,
         )
         rec = Recommender(p).recommend()
         m = rec.nutrition.macros
         v = rec.training.weekly_volume.total_sets
-        per = rec.training.periodisation.scheme[:24]
-        print(fmt.format(ap.nickname[:32], rec.archetype_signature,
+        strat = rec.trainee_category.strategy
+        split = rec.training.split.name[:18]
+        print(fmt.format(ap.nickname[:28],
                          f"{rec.energy.calorie_target:.0f}",
                          f"{m.protein_g:.0f}", f"{m.carbs_g:.0f}",
-                         f"{m.fat_g:.0f}", str(v), per))
+                         f"{m.fat_g:.0f}", str(v), strat, split))
     return 0
 
 
@@ -179,35 +168,30 @@ def cmd_new(args) -> int:
     template = {
         "name": "New Client",
         "age": 30,
-        "sex": "female",
-        "height_cm": 165,
-        "weight_kg": 65,
+        "sex": "male",
+        "height_cm": 178,
+        "weight_kg": 80,
         "body_fat_pct": None,
         "waist_cm": None,
         "neck_cm": None,
+        "hip_cm": None,
+        "visual_bf_label": None,
+        "wrist_cm": None,
         "resting_hr": 60,
-        "activity": "moderate",
-        "sleep_hours": 7.5,
-        "stress_level": 5,
-        "health_conditions": [],
-        "medications": "",
-        "injuries": "",
-        "parq_answers": {f"parq_{i}": "no" for i in range(1, 8)},
+        "activity": "mostly_sedentary",
         "dietary_preference": "omnivore",
         "allergies": [],
         "dislikes": [],
-        "meals_per_day": 3,
-        "cooking_skill": "intermediate",
+        "meals_per_day": 4,
         "preferred_cuisines": [],
         "experience": "beginner",
-        "environment": "gym_commercial",
-        "equipment": [],
-        "days_per_week": 4,
+        "environment": "gym_full",
+        "days_per_week": 3,
         "session_length": "standard_60",
         "primary_goal": "general_health",
-        "secondary_goals": [],
         "target_weight_kg": None,
         "timeline_weeks": 12,
+        "motivation": "appearance",
     }
     with open(args.output, "w") as fh:
         json.dump(template, fh, indent=2)

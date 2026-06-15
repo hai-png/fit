@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run_all.sh — one-shot verification of the entire engine.
-# Runs tests, all demos, generates HTML for every sample client.
+# Runs tests, the CLI showcase, and generates HTML for every sample client.
 set -e
 cd "$(dirname "$0")/.."
 
@@ -44,7 +44,7 @@ echo " 6. Sample profile commands (run yourself)"
 echo "============================================================"
 echo "  python -m fitness_engine.cli profile examples/sample_client.json"
 echo "  python -m fitness_engine.cli profile examples/sample_client.json --format html --out plan.html"
-echo "  python -m fitness_engine.cli profile examples/sample_client.json --format json --out plan.json"
+echo "  python -m fitness_engine.cli profile examples/sample_client.json --format json"
 echo "  python -m fitness_engine.cli meals"
 echo "  python -m fitness_engine.cli new /tmp/new_client.json"
 

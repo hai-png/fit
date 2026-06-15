@@ -2,71 +2,70 @@
 archetypes.py
 =============
 
-Systematic categorization of client profiles using a multi-dimensional
-archetype framework. Every client is described by a unique combination of
-orthogonal dimensions (goal × somatotype × experience × age × sex ×
-activity × diet × environment × health × time). The combination forms a
-deterministic *archetype signature* that drives all downstream decisions.
+Systematic categorization of client profiles using a streamlined
+multi-dimensional archetype framework, grounded in the RippedBody
+methodology and the Muscle & Strength body-type classification.
 
-Design principles
------------------
-1. **Orthogonality**: each dimension captures one independent axis of
-   variation so that archetypes can be combined freely.
-2. **Enumerability**: every value is an enum member, so we can index
-   the full combinatorial space.
-3. **Determinism**: given a profile, the archetype signature is unique
-   and reproducible.
-4. **Explainability**: every recommendation can be traced back to the
-   archetype combination that produced it.
+Dimensions
+----------
+1. Goal         — fat_loss (cut), muscle_gain (bulk), recomposition,
+                   strength, general_health
+2. Somatotype   — ectomorph, mesomorph, endomorph (M&S classification)
+3. Experience   — beginner, intermediate, advanced
+4. Age group    — young, adult, middle
+5. Sex          — male, female
+6. Activity     — sedentary, mostly_sedentary, lightly_active, highly_active
+7. Diet         — omnivore, vegan
+8. Environment  — home_bodyweight, home_gym, gym_full
+9. Session      — express_30, short_45, standard_60, extended_90
+
+The combination forms a deterministic *archetype signature* that drives
+all downstream decisions.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
 from itertools import product
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 
 # --------------------------------------------------------------------------- #
 # Dimension enums                                                             #
 # --------------------------------------------------------------------------- #
 class GoalArchetype(str, Enum):
-    """Primary training / nutrition goal."""
-    FAT_LOSS = "fat_loss"
-    MUSCLE_GAIN = "muscle_gain"
-    RECOMPOSITION = "recomposition"
-    STRENGTH = "strength"
-    ENDURANCE = "endurance"
-    GENERAL_HEALTH = "general_health"
-    ATHLETIC_PERFORMANCE = "athletic_performance"
-    REHABILITATION = "rehabilitation"
+    """Primary training / nutrition goal (RippedBody strategies)."""
+    FAT_LOSS = "fat_loss"             # Cut
+    MUSCLE_GAIN = "muscle_gain"       # Bulk
+    RECOMPOSITION = "recomposition"   # Simultaneous fat loss + muscle gain
+    STRENGTH = "strength"             # Strength-focused
+    GENERAL_HEALTH = "general_health" # Maintenance / health
 
 
 class Somatotype(str, Enum):
-    """Body-type classification (Sheldon-derived, simplified)."""
-    ECTOMORPH = "ectomorph"        # Lean, fast metabolism, hard gainer
-    MESOMORPH = "mesomorph"        # Athletic, moderate gain/loss
-    ENDOMORPH = "endomorph"        # Higher adiposity, easier gain
-    MIXED = "mixed"                # Cannot be cleanly classified
+    """Body-type classification (M&S / Sheldon-derived).
+
+    Ectomorph: small frame, fast metabolism, hard gainer, lean.
+    Mesomorph: athletic, muscular, gains easily, rectangular.
+    Endomorph: soft/round, gains fat easily, stocky, strong legs.
+    """
+    ECTOMORPH = "ectomorph"
+    MESOMORPH = "mesomorph"
+    ENDOMORPH = "endomorph"
 
 
 class ExperienceLevel(str, Enum):
-    """Resistance-training experience."""
-    NOVICE = "novice"              # < 3 months consistent training
-    BEGINNER = "beginner"          # 3-12 months
-    INTERMEDIATE = "intermediate"  # 1-3 years
-    ADVANCED = "advanced"          # 3-5 years
-    ELITE = "elite"                # 5+ years competitive / specialised
+    """Training experience — simplified to three tiers (RippedBody)."""
+    BEGINNER = "beginner"        # New to training; weekly load jumps
+    INTERMEDIATE = "intermediate"  # Monthly progress
+    ADVANCED = "advanced"        # Progress over months/year
 
 
 class AgeGroup(str, Enum):
-    """Coarse age buckets that share physiological norms."""
-    YOUTH = "youth"                # 14-17
-    YOUNG_ADULT = "young_adult"    # 18-25
-    ADULT = "adult"                # 26-40
-    MIDDLE = "middle"              # 41-55
-    SENIOR = "senior"              # 56-70
-    ELDER = "elder"                # 71+
+    """Coarse age buckets."""
+    YOUNG = "young"      # 18-30
+    ADULT = "adult"      # 31-45
+    MIDDLE = "middle"    # 46+
 
 
 class Sex(str, Enum):
@@ -75,68 +74,34 @@ class Sex(str, Enum):
 
 
 class ActivityLevel(str, Enum):
-    """Non-training daily activity (NEAT)."""
-    SEDENTARY = "sedentary"        # Desk job, minimal walking
-    LIGHT = "light"                # Light walking 1-3 days/wk
-    MODERATE = "moderate"          # Active job or 3-5 walks/wk
-    VERY_ACTIVE = "very_active"    # Physical job or daily activity
-    ATHLETE = "athlete"            # Multiple daily training sessions
+    """Daily activity levels (RippedBody TDEE multipliers).
+
+    These bundle NEAT + occupational activity with the assumption that the
+    client lifts weights 3–6 days per week.
+    """
+    SEDENTARY = "sedentary"             # Little/no exercise → BMR × 1.15
+    MOSTLY_SEDENTARY = "mostly_sedentary"  # Office work + lifting → × 1.35
+    LIGHTLY_ACTIVE = "lightly_active"   # Lightly active + lifting → × 1.55
+    HIGHLY_ACTIVE = "highly_active"     # Highly active + lifting → × 1.75
 
 
 class DietaryPreference(str, Enum):
     OMNIVORE = "omnivore"
-    PESCATARIAN = "pescatarian"
-    POLLO_PESCATARIAN = "pollo_pescatarian"   # Poultry + fish, no red meat
-    VEGETARIAN = "vegetarian"                # Eggs + dairy OK
     VEGAN = "vegan"
-    KETO = "keto"                            # High-fat, very low carb
-    MEDITERRANEAN = "mediterranean"
-    LOW_FODMAP = "low_fodmap"
-    HALAL = "halal"
-    KOSHER = "kosher"
-    FLEXIBLE = "flexible"
 
 
 class TrainingEnvironment(str, Enum):
-    HOME_BODYWEIGHT = "home_bodyweight"
-    HOME_MINIMAL = "home_minimal"             # Bands, dumbbells
-    HOME_FULL = "home_full"                   # Full home gym
-    GYM_COMMERCIAL = "gym_commercial"
-    GYM_FULL = "gym_full"                     # Powerlifting/strongman
-    HYBRID = "hybrid"
-    OUTDOOR = "outdoor"
-
-
-class HealthCondition(str, Enum):
-    NONE = "none"
-    TYPE_2_DIABETES = "t2_diabetes"
-    PRE_DIABETES = "pre_diabetes"
-    HYPERTENSION = "hypertension"
-    HIGH_CHOLESTEROL = "high_cholesterol"
-    PCOS = "pcos"
-    HYPOTHYROIDISM = "hypothyroidism"
-    JOINT_ISSUES_KNEE = "joint_knee"
-    JOINT_ISSUES_SHOULDER = "joint_shoulder"
-    LOWER_BACK = "lower_back"
-    CARDIO_LIMITED = "cardio_limited"
-    CELIAC = "celiac"
-    IBS = "ibs"
-    PREGNANCY = "pregnancy"
-    POSTPARTUM = "postpartum"
+    HOME_BODYWEIGHT = "home_bodyweight"  # Bodyweight only, no equipment
+    HOME_GYM = "home_gym"                # Dumbbells, bands, bench, rack
+    GYM_FULL = "gym_full"               # Full commercial gym (all equipment)
 
 
 class SessionLength(str, Enum):
     """Available time per training session."""
-    EXPRESS_30 = "express_30"        # 30 min
-    SHORT_45 = "short_45"            # 45 min
-    STANDARD_60 = "standard_60"      # 60 min
-    EXTENDED_90 = "extended_90"      # 90 min
-
-
-class CookingSkill(str, Enum):
-    BASIC = "basic"           # Can boil, fry, simple assembly
-    INTERMEDIATE = "intermediate"
-    ADVANCED = "advanced"     # Multi-step, complex recipes
+    EXPRESS_30 = "express_30"
+    SHORT_45 = "short_45"
+    STANDARD_60 = "standard_60"
+    EXTENDED_90 = "extended_90"
 
 
 # --------------------------------------------------------------------------- #
@@ -156,9 +121,10 @@ class ArchetypeSignature:
     session: SessionLength
 
     def code(self) -> str:
-        """Short human-readable code, e.g. 'FL-MESO-INT-ADLT-F-MOD-OMNI-GYM-S60'.
+        """Short human-readable code.
 
-        Useful as a primary key for caching, telemetry, and cohort analysis.
+        Format: GOAL-SOMA-EXP-AGE-SEX-ACT-DIET-ENV-LEN
+        e.g. 'MUS-ECTO-BEG-YOUN-M-SED-OMNI-HOM-60'
         """
         return (
             f"{self.goal.value[:3].upper()}-"
@@ -168,12 +134,51 @@ class ArchetypeSignature:
             f"{'M' if self.sex == Sex.MALE else 'F'}-"
             f"{self.activity.value[:3].upper()}-"
             f"{self.diet.value[:4].upper()}-"
-            f"{self.environment.value[:3].upper()}-"
+            f"{_ENV_CODES[self.environment]}-"
             f"{self.session.value.split('_')[1]}"
         )
 
-    def __str__(self) -> str:  # pragma: no cover - cosmetic
+    def __str__(self) -> str:
         return self.code()
+
+
+_ENV_CODES = {
+    TrainingEnvironment.HOME_BODYWEIGHT: "HOM",
+    TrainingEnvironment.HOME_GYM: "HGY",
+    TrainingEnvironment.GYM_FULL: "GYM",
+}
+
+
+# --------------------------------------------------------------------------- #
+# Trainee category (RippedBody 9 categories)                                  #
+# --------------------------------------------------------------------------- #
+class TraineeCategory(str, Enum):
+    """The 9 categories of trainee from RippedBody goal-setting guide.
+
+    These classify a person's *current physique state* and drive the
+    recommended strategy (cut / bulk / recomp / maintenance).
+    """
+    SKINNY = "skinny"                       # Low muscle, low body fat → Bulk
+    FAT_BUT_MUSCLED = "fat_but_muscled"     # Muscular + high BF → Cut
+    MUSCLED_LEAN = "muscled_lean"           # Muscled, few lbs to lose → Cut
+    SHREDDED = "shredded"                   # Defined abs → Maintenance / Slow bulk
+    FAT_AND_WEAK = "fat_and_weak"           # High BF, new to training → Cut + newbie gains
+    OBESE = "obese"                         # Very high BF → Habit change + cut
+    SKINNY_FAT = "skinny_fat"               # Low muscle + moderate-high BF → Recomp or Bulk
+    PURGATORY = "purgatory"                 # Stuck spinning wheels → Cycle cut/bulk
+    NEW_TRAINEE_HEALTHY = "new_trainee_healthy"  # Healthy BW, new to training → Recomp / Bulk
+
+
+@dataclass
+class TraineeProfile:
+    """Classification result with strategy and coaching notes."""
+    category: TraineeCategory
+    strategy: str         # "cut", "bulk", "recomp", "maintenance"
+    estimated_body_fat: float
+    has_significant_muscle: bool
+    summary: str
+    pitfalls: List[str]
+    recommendations: List[str]
 
 
 # --------------------------------------------------------------------------- #
@@ -181,13 +186,13 @@ class ArchetypeSignature:
 # --------------------------------------------------------------------------- #
 @dataclass
 class ArchetypeProfile:
-    """Human-friendly description and behavioral notes for an archetype."""
+    """Human-friendly description and coaching notes for an archetype."""
     signature: ArchetypeSignature
     nickname: str
     summary: str
     strengths: List[str]
     risks: List[str]
-    emphasis: List[str]   # training / nutrition emphasis areas
+    emphasis: List[str]
 
 
 # --------------------------------------------------------------------------- #
@@ -204,23 +209,21 @@ def total_combinations() -> int:
 
 
 def enumerate_signatures() -> List[ArchetypeSignature]:
-    """Enumerate every legally-possible archetype signature.
+    """Enumerate every possible archetype signature (returns a list)."""
+    return list(iter_signatures())
 
-    Useful for QA testing, regression coverage, and cohort dashboards.
-    Note: not every combination is biologically sensible (e.g. elite +
-    youth), so downstream logic still validates.
-    """
-    sigs: List[ArchetypeSignature] = []
+
+def iter_signatures():
+    """Lazy generator yielding every possible archetype signature."""
     for combo in product(
         GoalArchetype, Somatotype, ExperienceLevel, AgeGroup, Sex,
         ActivityLevel, DietaryPreference, TrainingEnvironment, SessionLength,
     ):
-        sigs.append(ArchetypeSignature(*combo))
-    return sigs
+        yield ArchetypeSignature(*combo)
 
 
 def signature_from_dict(d: Dict) -> ArchetypeSignature:
-    """Build a signature from a dict of string values (e.g. JSON)."""
+    """Build a signature from a dict of string values."""
     return ArchetypeSignature(
         goal=GoalArchetype(d["goal"]),
         somatotype=Somatotype(d["somatotype"]),
@@ -235,57 +238,25 @@ def signature_from_dict(d: Dict) -> ArchetypeSignature:
 
 
 # --------------------------------------------------------------------------- #
-# Example archetype profiles (curated library)                                #
+# Curated archetype profiles                                                  #
 # --------------------------------------------------------------------------- #
 CURATED_PROFILES: Dict[str, ArchetypeProfile] = {
-    "office_worker_fat_loss": ArchetypeProfile(
-        signature=ArchetypeSignature(
-            goal=GoalArchetype.FAT_LOSS,
-            somatotype=Somatotype.ENDOMORPH,
-            experience=ExperienceLevel.BEGINNER,
-            age_group=AgeGroup.ADULT,
-            sex=Sex.FEMALE,
-            activity=ActivityLevel.SEDENTARY,
-            diet=DietaryPreference.MEDITERRANEAN,
-            environment=TrainingEnvironment.GYM_COMMERCIAL,
-            session=SessionLength.STANDARD_60,
-        ),
-        nickname="The Desk-Bound Reset",
-        summary=(
-            "Sedentary knowledge worker with modest training history, "
-            "looking to drop body fat while protecting lean tissue."
-        ),
-        strengths=[
-            "Likely responsive to small calorie deficits",
-            "Can train 3-4 days per week consistently",
-        ],
-        risks=[
-            "Low NEAT → TDEE often overestimated",
-            "Joint creep from desk posture",
-            "Under-eating protein while dieting",
-        ],
-        emphasis=[
-            "Daily step target (8-10k)",
-            "High-protein (1.8 g/kg)",
-            "Resistance training 3x/week to preserve lean mass",
-        ],
-    ),
-    "ectomorph_lean_gain": ArchetypeProfile(
+    "skinny_hardgainer": ArchetypeProfile(
         signature=ArchetypeSignature(
             goal=GoalArchetype.MUSCLE_GAIN,
             somatotype=Somatotype.ECTOMORPH,
-            experience=ExperienceLevel.INTERMEDIATE,
-            age_group=AgeGroup.YOUNG_ADULT,
+            experience=ExperienceLevel.BEGINNER,
+            age_group=AgeGroup.YOUNG,
             sex=Sex.MALE,
-            activity=ActivityLevel.LIGHT,
+            activity=ActivityLevel.LIGHTLY_ACTIVE,
             diet=DietaryPreference.OMNIVORE,
-            environment=TrainingEnvironment.GYM_COMMERCIAL,
+            environment=TrainingEnvironment.GYM_FULL,
             session=SessionLength.STANDARD_60,
         ),
         nickname="The Classic Hard Gainer",
         summary=(
-            "Naturally lean male wanting to add visible mass. "
-            "Metabolically expensive to feed."
+            "Naturally lean with a fast metabolism. Needs a calorie "
+            "surplus and compound lifting to build visible mass."
         ),
         strengths=[
             "Insulin sensitivity usually good",
@@ -293,327 +264,139 @@ CURATED_PROFILES: Dict[str, ArchetypeProfile] = {
         ],
         risks=[
             "Chronic under-eating → low energy availability",
-            "Excessive cardio blunts surplus",
+            "Excessive cardio blunts the surplus",
             "Neglecting progressive overload",
         ],
         emphasis=[
-            "Caloric surplus of 300-500 kcal",
+            "Caloric surplus of ~200-300 kcal above TDEE (scaled to body weight)",
             "Carb-forward nutrition around training",
-            "Heavy compound lifts 4x/week",
+            "Heavy compound lifts 3-4×/week, minimal cardio",
         ],
     ),
-    "postpartum_recomp": ArchetypeProfile(
+    "fat_but_muscled": ArchetypeProfile(
         signature=ArchetypeSignature(
-            goal=GoalArchetype.RECOMPOSITION,
-            somatotype=Somatotype.MIXED,
-            experience=ExperienceLevel.BEGINNER,
-            age_group=AgeGroup.ADULT,
-            sex=Sex.FEMALE,
-            activity=ActivityLevel.LIGHT,
-            diet=DietaryPreference.OMNIVORE,
-            environment=TrainingEnvironment.HOME_MINIMAL,
-            session=SessionLength.SHORT_45,
-        ),
-        nickname="The Reclaiming Parent",
-        summary=(
-            "Postpartum woman rebuilding strength and recomposition "
-            "from a home setup on limited time."
-        ),
-        strengths=[
-            "Strong adherence potential when sessions fit life",
-            "High motivation tied to identity shift",
-        ],
-        risks=[
-            "Pelvic-floor dysfunction if progressed too fast",
-            "Diastasis recti considerations",
-            "Sleep deficit undermining recovery",
-        ],
-        emphasis=[
-            "Pelvic-floor safe progression",
-            "Dumbbell + band based home program",
-            "Protein target 1.8 g/kg adjusted to current intake",
-        ],
-    ),
-    "senior_strength_health": ArchetypeProfile(
-        signature=ArchetypeSignature(
-            goal=GoalArchetype.STRENGTH,
-            somatotype=Somatotype.MIXED,
-            experience=ExperienceLevel.NOVICE,
-            age_group=AgeGroup.SENIOR,
-            sex=Sex.MALE,
-            activity=ActivityLevel.LIGHT,
-            diet=DietaryPreference.MEDITERRANEAN,
-            environment=TrainingEnvironment.GYM_COMMERCIAL,
-            session=SessionLength.STANDARD_60,
-        ),
-        nickname="The Vital Retiree",
-        summary=(
-            "60+ male new to resistance training, focused on longevity, "
-            "strength, and metabolic health."
-        ),
-        strengths=[
-            "Excellent response to low-volume strength work",
-            "Cardiometabolic gains rapid",
-        ],
-        risks=[
-            "Sarcopenia progression",
-            "Osteoporosis risk if loading absent",
-            "Cardiac event screening needed",
-        ],
-        emphasis=[
-            "Progressive overload with sub-maximal loads",
-            "Bone-loading exercises (squats, presses)",
-            "Adequate calcium + vitamin D",
-        ],
-    ),
-    "diabetes_reversal": ArchetypeProfile(
-        signature=ArchetypeSignature(
-            goal=GoalArchetype.GENERAL_HEALTH,
-            somatotype=Somatotype.ENDOMORPH,
-            experience=ExperienceLevel.NOVICE,
-            age_group=AgeGroup.MIDDLE,
-            sex=Sex.MALE,
-            activity=ActivityLevel.SEDENTARY,
-            diet=DietaryPreference.MEDITERRANEAN,
-            environment=TrainingEnvironment.HOME_BODYWEIGHT,
-            session=SessionLength.STANDARD_60,
-        ),
-        nickname="The Metabolic Rebuild",
-        summary=(
-            "Newly diagnosed type-2 diabetic with sedentary lifestyle, "
-            "needing safe but effective entry-level programming."
-        ),
-        strengths=[
-            "Glycaemic control responds quickly to diet + exercise",
-        ],
-        risks=[
-            "Hypoglycaemia if on insulin secretagogues",
-            "Cardiovascular co-morbidity",
-        ],
-        emphasis=[
-            "Low-glycaemic-load Mediterranean meals",
-            "Daily walking protocol post-meals",
-            "Resistance training 3x/week",
-        ],
-    ),
-    "athlete_endurance": ArchetypeProfile(
-        signature=ArchetypeSignature(
-            goal=GoalArchetype.ENDURANCE,
-            somatotype=Somatotype.ECTOMORPH,
-            experience=ExperienceLevel.ADVANCED,
-            age_group=AgeGroup.YOUNG_ADULT,
-            sex=Sex.FEMALE,
-            activity=ActivityLevel.ATHLETE,
-            diet=DietaryPreference.OMNIVORE,
-            environment=TrainingEnvironment.HYBRID,
-            session=SessionLength.EXTENDED_90,
-        ),
-        nickname="The Endurance Specialist",
-        summary=(
-            "Advanced endurance athlete with hybrid gym + outdoor setup, "
-            "aiming at race-day performance."
-        ),
-        strengths=[
-            "High training tolerance",
-            "Aerobic base already substantial",
-        ],
-        risks=[
-            "RED-S if under-fuelled",
-            "Iron deficiency common in females",
-        ],
-        emphasis=[
-            "Periodised carb intake around sessions",
-            "Strength maintenance block 2x/week",
-            "Iron-rich food emphasis",
-        ],
-    ),
-    "vegan_athlete": ArchetypeProfile(
-        signature=ArchetypeSignature(
-            goal=GoalArchetype.ATHLETIC_PERFORMANCE,
+            goal=GoalArchetype.FAT_LOSS,
             somatotype=Somatotype.MESOMORPH,
             experience=ExperienceLevel.INTERMEDIATE,
-            age_group=AgeGroup.YOUNG_ADULT,
+            age_group=AgeGroup.ADULT,
             sex=Sex.MALE,
-            activity=ActivityLevel.VERY_ACTIVE,
-            diet=DietaryPreference.VEGAN,
-            environment=TrainingEnvironment.HYBRID,
+            activity=ActivityLevel.MOSTLY_SEDENTARY,
+            diet=DietaryPreference.OMNIVORE,
+            environment=TrainingEnvironment.GYM_FULL,
             session=SessionLength.STANDARD_60,
         ),
-        nickname="The Plant-Powered Performer",
+        nickname="The Muscled Cutter",
         summary=(
-            "Vegan intermediate athlete wanting to optimise performance "
-            "without compromising ethics. Higher attention to protein "
-            "and micronutrient density required."
+            "Has a solid muscular base hidden under a layer of fat. "
+            "The hard work is done — it's just a case of revealing it."
+        ),
+        strengths=[
+            "Excellent response to a calorie deficit",
+            "Strength preservation during cuts is natural",
+        ],
+        risks=[
+            "Over-reducing training volume",
+            "Dieting too aggressively",
+            "Water-weight fluctuation messing with motivation",
+        ],
+        emphasis=[
+            "Moderate deficit (~0.5-0.75% body weight/week)",
+            "3 days/week training focused on compound lifts",
+            "Maintain strength; reduce accessory volume",
+        ],
+    ),
+    "skinny_fat": ArchetypeProfile(
+        signature=ArchetypeSignature(
+            goal=GoalArchetype.RECOMPOSITION,
+            somatotype=Somatotype.ENDOMORPH,
+            experience=ExperienceLevel.BEGINNER,
+            age_group=AgeGroup.ADULT,
+            sex=Sex.MALE,
+            activity=ActivityLevel.SEDENTARY,
+            diet=DietaryPreference.OMNIVORE,
+            environment=TrainingEnvironment.GYM_FULL,
+            session=SessionLength.STANDARD_60,
+        ),
+        nickname="The Skinny-Fat Recomper",
+        summary=(
+            "Low muscle mass with moderate-to-high body fat. Newbie gains "
+            "are possible with a recomp or gentle bulk approach."
+        ),
+        strengths=[
+            "Strong potential for simultaneous fat loss and muscle gain",
+            "Quick visible changes from resistance training",
+        ],
+        risks=[
+            "Dieting too hard → losing what little muscle exists",
+            "Spinning wheels with excessive cardio",
+            "Impatience with slow recomp progress",
+        ],
+        emphasis=[
+            "Maintenance calories or slight surplus",
+            "Focus on progressive overload and compound lifts",
+            "Prioritise protein and patience",
+        ],
+    ),
+    "home_beginner": ArchetypeProfile(
+        signature=ArchetypeSignature(
+            goal=GoalArchetype.GENERAL_HEALTH,
+            somatotype=Somatotype.MESOMORPH,
+            experience=ExperienceLevel.BEGINNER,
+            age_group=AgeGroup.MIDDLE,
+            sex=Sex.FEMALE,
+            activity=ActivityLevel.MOSTLY_SEDENTARY,
+            diet=DietaryPreference.OMNIVORE,
+            environment=TrainingEnvironment.HOME_GYM,
+            session=SessionLength.SHORT_45,
+        ),
+        nickname="The Home-Gym Beginner",
+        summary=(
+            "Middle-aged beginner training at home with minimal equipment, "
+            "focused on building a foundation of strength and health."
+        ),
+        strengths=[
+            "Strong response to basic resistance training",
+            "Improved metabolic markers from diet + exercise",
+        ],
+        risks=[
+            "Inconsistent progressive overload at home",
+            "Underestimating the importance of protein",
+        ],
+        emphasis=[
+            "Bodyweight + dumbbell compound movements",
+            "Maintenance calories with adequate protein (1.6 g/kg)",
+            "Consistency over intensity; 3 sessions/week",
+        ],
+    ),
+    "vegan_builder": ArchetypeProfile(
+        signature=ArchetypeSignature(
+            goal=GoalArchetype.MUSCLE_GAIN,
+            somatotype=Somatotype.MESOMORPH,
+            experience=ExperienceLevel.INTERMEDIATE,
+            age_group=AgeGroup.YOUNG,
+            sex=Sex.MALE,
+            activity=ActivityLevel.LIGHTLY_ACTIVE,
+            diet=DietaryPreference.VEGAN,
+            environment=TrainingEnvironment.GYM_FULL,
+            session=SessionLength.STANDARD_60,
+        ),
+        nickname="The Plant-Powered Builder",
+        summary=(
+            "Vegan intermediate wanting to build muscle. Higher attention "
+            "to protein quantity and micronutrient density is essential."
         ),
         strengths=[
             "High antioxidant intake from plant foods",
-            "Often lower body fat at same caloric intake",
+            "Often good insulin sensitivity",
         ],
         risks=[
-            "Subtle protein deficiency without planning",
-            "B12, D3, omega-3 (EPA/DHA), iron, zinc gaps",
-            "Lower creatine status",
+            "Protein quantity without deliberate planning",
+            "B12, D3, omega-3, iron, zinc gaps",
         ],
         emphasis=[
-            "Protein 1.8-2.0 g/kg with strategic combining",
-            "Supplementation: B12, D3, algae omega-3, creatine",
-            "Iron + vitamin C co-consumption",
-        ],
-    ),
-    "keto_cruiser": ArchetypeProfile(
-        signature=ArchetypeSignature(
-            goal=GoalArchetype.GENERAL_HEALTH,
-            somatotype=Somatotype.MESOMORPH,
-            experience=ExperienceLevel.INTERMEDIATE,
-            age_group=AgeGroup.ADULT,
-            sex=Sex.MALE,
-            activity=ActivityLevel.MODERATE,
-            diet=DietaryPreference.KETO,
-            environment=TrainingEnvironment.GYM_COMMERCIAL,
-            session=SessionLength.STANDARD_60,
-        ),
-        nickname="The Keto Cruiser",
-        summary=(
-            "Intermediate client committed to ketogenic eating for "
-            "metabolic and cognitive benefits."
-        ),
-        strengths=[
-            "Stable energy and reduced hunger",
-            "Improved triglycerides / HDL pattern",
-        ],
-        risks=[
-            "Reduced glycogen -> training capacity",
-            "Electrolyte loss (Na, K, Mg)",
-            "Saturated fat ceiling for lipids",
-        ],
-        emphasis=[
-            "Carbs <= 50 g/day, fat 70% kcal",
-            "Daily electrolytes: Na 3-5 g, K 3.5 g, Mg 400 mg",
-        ],
-    ),
-    "shift_worker": ArchetypeProfile(
-        signature=ArchetypeSignature(
-            goal=GoalArchetype.GENERAL_HEALTH,
-            somatotype=Somatotype.MIXED,
-            experience=ExperienceLevel.BEGINNER,
-            age_group=AgeGroup.ADULT,
-            sex=Sex.MALE,
-            activity=ActivityLevel.LIGHT,
-            diet=DietaryPreference.OMNIVORE,
-            environment=TrainingEnvironment.HOME_MINIMAL,
-            session=SessionLength.SHORT_45,
-        ),
-        nickname="The Shift-Worker",
-        summary=(
-            "Nurse / firefighter / driver on rotating shifts. "
-            "Needs flexible, time-efficient programming."
-        ),
-        strengths=[
-            "Adaptability to irregular schedule",
-            "Often high physical job demands",
-        ],
-        risks=[
-            "Circadian disruption -> recovery impairment",
-            "Sleep variability blunts training response",
-            "Meal timing collapse",
-        ],
-        emphasis=[
-            "Short, dense sessions (45 min)",
-            "Resistance on day-shift; Zone-2 on night-shift",
-            "Protein-forward meals regardless of clock time",
-        ],
-    ),
-    "back_pain_returner": ArchetypeProfile(
-        signature=ArchetypeSignature(
-            goal=GoalArchetype.REHABILITATION,
-            somatotype=Somatotype.MESOMORPH,
-            experience=ExperienceLevel.NOVICE,
-            age_group=AgeGroup.ADULT,
-            sex=Sex.FEMALE,
-            activity=ActivityLevel.SEDENTARY,
-            diet=DietaryPreference.OMNIVORE,
-            environment=TrainingEnvironment.GYM_COMMERCIAL,
-            session=SessionLength.STANDARD_60,
-        ),
-        nickname="The Back-Pain Returner",
-        summary=(
-            "Client with chronic lower-back issue wanting to return to "
-            "training safely after a layoff. Needs physio-aware programming."
-        ),
-        strengths=[
-            "High motivation after recovery",
-            "Often excellent body awareness",
-        ],
-        risks=[
-            "Re-injury if progressed too fast",
-            "Fear-avoidance behaviour",
-        ],
-        emphasis=[
-            "Trap-bar DL / light RDL only - no conventional DL",
-            "Core stability work daily",
-            "McGill Big-3 as warm-up",
-        ],
-    ),
-    "youth_athlete": ArchetypeProfile(
-        signature=ArchetypeSignature(
-            goal=GoalArchetype.ATHLETIC_PERFORMANCE,
-            somatotype=Somatotype.MESOMORPH,
-            experience=ExperienceLevel.INTERMEDIATE,
-            age_group=AgeGroup.YOUTH,
-            sex=Sex.MALE,
-            activity=ActivityLevel.VERY_ACTIVE,
-            diet=DietaryPreference.OMNIVORE,
-            environment=TrainingEnvironment.GYM_COMMERCIAL,
-            session=SessionLength.STANDARD_60,
-        ),
-        nickname="The Youth Athlete",
-        summary=(
-            "16-year-old multi-sport athlete. Skeletally immature "
-            "but training at high volume."
-        ),
-        strengths=[
-            "High motor learning capacity",
-            "Strong recovery",
-        ],
-        risks=[
-            "Growth-plate injury if load mismanaged",
-            "Relative Energy Deficiency in Sport (RED-S)",
-        ],
-        emphasis=[
-            "No max-effort lifts (no 1RM testing)",
-            "Higher reps (8-15) for safety",
-            "Energy availability > caloric restriction",
-        ],
-    ),
-    "pcos_balancer": ArchetypeProfile(
-        signature=ArchetypeSignature(
-            goal=GoalArchetype.FAT_LOSS,
-            somatotype=Somatotype.ENDOMORPH,
-            experience=ExperienceLevel.BEGINNER,
-            age_group=AgeGroup.ADULT,
-            sex=Sex.FEMALE,
-            activity=ActivityLevel.SEDENTARY,
-            diet=DietaryPreference.MEDITERRANEAN,
-            environment=TrainingEnvironment.GYM_COMMERCIAL,
-            session=SessionLength.STANDARD_60,
-        ),
-        nickname="The PCOS Balancer",
-        summary=(
-            "Woman with PCOS wanting to reduce visceral fat, improve "
-            "insulin sensitivity, and protect lean mass."
-        ),
-        strengths=[
-            "Strong response to resistance training",
-            "Anti-inflammatory diet benefits",
-        ],
-        risks=[
-            "Insulin resistance complicates deficit",
-            "Androgen excess may limit muscle gain",
-        ],
-        emphasis=[
-            "Protein >= 1.8 g/kg, distributed across meals",
-            "Low-glycaemic carbs, high fibre",
-            "Resistance training > cardio for IR",
+            "Protein 1.8-2.2 g/kg with strategic combining",
+            "Supplement: B12, D3, algae omega-3",
+            "Calorie surplus prioritising calorie-dense plant foods",
         ],
     ),
 }

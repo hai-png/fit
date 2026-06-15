@@ -85,6 +85,7 @@ def render(rec, client_name: str = "Client") -> str:
     m = rec.nutrition.macros
     t = rec.training
     n = rec.nutrition
+    tc = rec.trainee_category
 
     html = ['<!doctype html><html><head><meta charset="utf-8">']
     html.append(f"<title>{escape(client_name)} - Personalised Plan</title>")
@@ -100,12 +101,30 @@ def render(rec, client_name: str = "Client") -> str:
     )
     html.append('</div></header>')
 
+    # Trainee category banner
+    html.append('<div class="panel">')
+    cat_label = tc.category.value.replace("_", " ").title()
+    html.append(f'<h2>Trainee Profile: {escape(cat_label)} '
+                f'({escape(tc.strategy)})</h2>')
+    html.append(f'<p>{escape(tc.summary)}</p>')
+    if tc.pitfalls:
+        html.append('<h3>Common Pitfalls to Avoid</h3><ul>')
+        for pf in tc.pitfalls:
+            html.append(f'<li>{escape(pf)}</li>')
+        html.append('</ul>')
+    if tc.recommendations:
+        html.append('<h3>Key Recommendations</h3><ul>')
+        for r in tc.recommendations:
+            html.append(f'<li>{escape(r)}</li>')
+        html.append('</ul>')
+    html.append('</div>')
+
     # KPI row
     html.append('<div class="grid-3">')
     html.append(f'''<div class="panel">
       <h3>Body Composition</h3>
       <div class="kpi"><span class="v">{bc.bmi}</span><span class="u">BMI ({bc.bmi_category})</span></div>
-      <div class="kpi"><span class="v">{bc.body_fat_pct}%</span><span class="u">body fat</span></div>
+      <div class="kpi"><span class="v">{bc.body_fat_pct}%</span><span class="u">body fat [{bc.estimation_method}]</span></div>
       <div class="kpi"><span class="v">{bc.lean_mass_kg}</span><span class="u">kg lean mass</span></div>
     </div>''')
     html.append(f'''<div class="panel">
@@ -118,7 +137,7 @@ def render(rec, client_name: str = "Client") -> str:
     html.append(f'''<div class="panel">
       <h3>Training</h3>
       <div class="kpi"><span class="v">{t.weekly_volume.total_sets}</span><span class="u">sets / week</span></div>
-      <div class="kpi"><span class="v">{t.periodisation.scheme}</span><span class="u">periodisation</span></div>
+      <div class="kpi"><span class="v">{t.split.name}</span><span class="u">split</span></div>
       <div class="kpi"><span class="v">{t.cardio_prescription.get("weekly_cardio_minutes","-")}</span><span class="u">min cardio / wk</span></div>
       <div class="kpi"><span class="v">{n.hydration.total_ml:.0f}</span><span class="u">ml water / day</span></div>
     </div>''')
@@ -126,28 +145,20 @@ def render(rec, client_name: str = "Client") -> str:
 
     # Warnings / notes
     if rec.warnings or rec.notes:
-        html.append('<div class="panel"><h2>Coaching Notes</h2>')
+        html.append('<div class="panel"><h2>Health & Lifestyle Notes</h2>')
         for w in rec.warnings:
             html.append(f'<div class="warn">! {escape(w)}</div>')
         for note in rec.notes:
             html.append(f'<div class="note">i {escape(note)}</div>')
+        if rec.intake_report.recommendations:
+            html.append('<h3>Daily Habits</h3><ul>')
+            for r in rec.intake_report.recommendations:
+                html.append(f'<li>{escape(r)}</li>')
+            html.append('</ul>')
         html.append('</div>')
 
-    # Training split visualisation
-    html.append('<div class="panel"><h2>Training Split</h2>')
-    sp = t.split
-    parts = [("Strength", sp.strength_pct),
-             ("Hypertrophy", sp.hypertrophy_pct),
-             ("Cardio", sp.cardio_pct),
-             ("Mobility", sp.mobility_pct)]
-    html.append('<div style="display:flex;height:24px;border-radius:6px;overflow:hidden;">')
-    palette = ["#1e40af", "#2563eb", "#3b82f6", "#93c5fd"]
-    for (label, pct), col in zip(parts, palette):
-        html.append(f'<div title="{label} {pct*100:.0f}%" '
-                    f'style="background:{col};width:{pct*100:.1f}%;'
-                    f'display:flex;align-items:center;justify-content:center;'
-                    f'color:white;font-size:11px;">{label[:4]} {pct*100:.0f}%</div>')
-    html.append('</div>')
+    # Volume + intensity + progression
+    html.append('<div class="panel"><h2>Training Setup</h2>')
     html.append(f'<h3>Volume per muscle group (sets/week)</h3>')
     html.append('<table>')
     for grp, sets_ in t.weekly_volume.per_muscle_group.items():
@@ -156,25 +167,28 @@ def render(rec, client_name: str = "Client") -> str:
                     f'<td style="text-align:right">{sets_}</td></tr>')
     html.append('</table>')
     html.append(f'<h3>Intensity</h3>')
-    html.append(f'<p>Primary lifts: <b>{t.intensity.primary_reps}</b> @ '
-                f'RPE {t.intensity.primary_rpe} | '
-                f'Accessories: <b>{t.intensity.accessory_reps}</b> @ '
-                f'RPE {t.intensity.accessory_rpe}</p>')
+    html.append(f'<p>Primary lifts: <b>{t.intensity.primary_reps}</b> reps @ '
+                f'{t.intensity.primary_rir} RIR | '
+                f'Accessories: <b>{t.intensity.accessory_reps}</b> reps @ '
+                f'{t.intensity.accessory_rir} RIR</p>')
     html.append(f'<h3>Progression</h3>')
-    html.append(f'<p>{t.progression.primary}<br>{t.progression.rule}</p>')
+    html.append(f'<p>{escape(t.progression.primary)}<br>'
+                f'<small>{escape(t.progression.rule)}</small></p>')
+    html.append(f'<h3>Periodisation: {escape(t.periodisation.scheme)}</h3>')
+    html.append(f'<p>{escape(t.periodisation.description)}</p>')
     html.append('</div>')
 
     # Schedule
     html.append('<div class="panel"><h2>Weekly Schedule</h2>')
     for day, exs in t.weekly_schedule.items():
-        html.append(f'<div class="day">{day}</div>')
+        html.append(f'<div class="day">{escape(day)}</div>')
         for ex in exs:
             html.append(
                 f'<div class="exercise">'
                 f'<div><b>{escape(ex["name"])}</b><br>'
-                f'<small>{ex["primary_muscle"]}</small></div>'
-                f'<div>{ex["sets_reps"]}<br><small>RPE {ex["rpe"]}</small></div>'
-                f'<div>{" | ".join(ex["equipment"])}</div>'
+                f'<small>{escape(ex["primary_muscle"])}</small></div>'
+                f'<div>{escape(ex["sets_reps"])}<br><small>{ex["rir"]} RIR</small></div>'
+                f'<div>{escape(" | ".join(ex["equipment"]))}</div>'
                 f'</div>'
             )
     html.append('</div>')
@@ -195,20 +209,20 @@ def render(rec, client_name: str = "Client") -> str:
     html.append('<div class="panel"><h2>Cardio Prescription</h2>')
     html.append('<table>')
     for k, v in t.cardio_prescription.items():
-        html.append(f'<tr><th>{k.replace("_"," ").title()}</th><td>{escape(v)}</td></tr>')
+        html.append(f'<tr><th>{escape(k.replace("_", " ").title())}</th><td>{escape(v)}</td></tr>')
     html.append('</table>')
     html.append('<h3>Heart-rate Zones (Karvonen)</h3>')
     html.append('<table><tr><th>Zone</th><th>Range</th></tr>')
     for name, (lo, hi) in t.cardio_zones.zones.items():
-        html.append(f'<tr><td>{name.replace("_"," ").title()}</td>'
+        html.append(f'<tr><td>{escape(name.replace("_", " ").title())}</td>'
                     f'<td>{lo:.0f} - {hi:.0f} bpm</td></tr>')
     html.append('</table></div>')
 
     # Meal plan
     html.append('<div class="panel"><h2>Meal Plan</h2>')
-    html.append(f'<p>Cuisines: {" | ".join(n.cuisine)}</p>')
+    html.append(f'<p>Cuisines: {escape(" | ".join(n.cuisine))}</p>')
     for meal in n.meal_plan.meals:
-        html.append(f'<div class="day">{meal.slot.title()}</div>')
+        html.append(f'<div class="day">{escape(meal.slot.title())}</div>')
         html.append(f'<b>{escape(meal.name)}</b> '
                     f'<span class="tag">{meal.calories:.0f} kcal</span> '
                     f'<span class="tag">P {meal.protein_g:.0f}</span> '
@@ -220,28 +234,24 @@ def render(rec, client_name: str = "Client") -> str:
 
     # Supplements
     html.append('<div class="panel"><h2>Supplement Stack</h2>')
+    any_supps = False
     for section in ("foundational", "goal_specific", "conditional"):
         items = n.supplements.get(section, [])
         if not items:
             continue
-        html.append(f'<h3>{section.replace("_"," ").title()}</h3>')
+        any_supps = True
+        html.append(f'<h3>{escape(section.replace("_", " ").title())}</h3>')
         html.append('<table><tr><th>Name</th><th>Dose</th><th>Rationale</th></tr>')
         for nm, dose, why in items:
             html.append(f'<tr><td>{escape(nm)}</td>'
                         f'<td>{escape(dose)}</td>'
                         f'<td>{escape(why)}</td></tr>')
         html.append('</table>')
+    if not any_supps:
+        html.append('<p>No specific supplements recommended. Focus on whole foods.</p>')
     html.append('</div>')
 
-    # Overrides
-    if n.overrides:
-        html.append('<div class="panel"><h2>Medical / Dietary Overrides</h2>')
-        html.append('<table>')
-        for k, v in n.overrides.items():
-            html.append(f'<tr><th>{k}</th><td>{escape(v)}</td></tr>')
-        html.append('</table></div>')
-
-    html.append(f'<footer>Generated by Fitness Engine | '
+    html.append(f'<footer>Generated by Fitness Engine v2.0 | '
                 f'{escape(rec.archetype_signature)} | '
                 f'Target: {e.calorie_target:.0f} kcal | '
                 f'Volume: {t.weekly_volume.total_sets} sets/wk</footer>')

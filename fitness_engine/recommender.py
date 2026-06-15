@@ -2,10 +2,9 @@
 recommender.py
 ==============
 
-The orchestrator. Takes a fully-populated ClientProfile, runs it
-through the calculators, decision trees, and protocol libraries,
-and returns a unified PlanRecommendation containing a training
-program, a nutrition program, and an actionable summary.
+The orchestrator. Takes a ClientProfile, runs it through the calculators,
+decision trees, and protocol libraries, and returns a unified
+PlanRecommendation grounded in the RippedBody methodology.
 """
 from __future__ import annotations
 
@@ -13,24 +12,25 @@ from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional
 
 from .archetypes import (
-    ActivityLevel, AgeGroup, ArchetypeSignature, CookingSkill,
-    DietaryPreference, ExperienceLevel, GoalArchetype, HealthCondition,
-    SessionLength, Sex, Somatotype, TrainingEnvironment,
-    signature_from_dict,
+    ActivityLevel, AgeGroup, ArchetypeSignature, DietaryPreference,
+    ExperienceLevel, GoalArchetype, Sex, Somatotype, TrainingEnvironment,
+    SessionLength, TraineeProfile,
 )
 from .calculators import (
     BodyComposition, CardioZones, EnergyExpenditure, Hydration, Macros,
-    StrengthEstimate, body_composition, energy_expenditure, hydration,
+    MicronutrientTargets, MuscularPotential,
+    body_composition, energy_expenditure, hydration,
     macros_for, cardio_zones, infer_age_group, infer_somatotype,
+    classify_trainee, micronutrient_targets, muscular_potential,
 )
 from .decision_trees import (
     IntensityScheme, Periodisation, ProgressionRule, SessionDensity,
     TrainingSplit, WeeklyVolume, exercise_selection, intensity_scheme,
-    macro_overrides, periodisation, cuisine_pick, progression_rule,
-    session_density, supplement_stack, training_split, weekly_volume,
+    cuisine_pick, progression_rule, session_density, supplement_stack,
+    training_split, weekly_volume, periodisation,
 )
-from .meal_plans import MealItem, MealPlan, assemble_day
-from .exercise_plans import EXERCISE_LIBRARY, Exercise, weekly_split, build_session
+from .meal_plans import MealPlan, assemble_day
+from .exercise_plans import weekly_split
 from .questionnaires import IntakeReport, intake_report
 
 
@@ -48,43 +48,34 @@ class ClientProfile:
     waist_cm: Optional[float] = None
     neck_cm: Optional[float] = None
     hip_cm: Optional[float] = None
+    visual_bf_label: Optional[str] = None
+    wrist_cm: Optional[float] = None
     resting_hr: int = 60
 
-    # Lifestyle
-    activity: ActivityLevel = ActivityLevel.MODERATE
-    sleep_hours: float = 7.5
-    stress_level: int = 5
-
-    # Health
-    health_conditions: List[HealthCondition] = field(default_factory=list)
-    medications: str = ""
-    injuries: str = ""
-    parq_answers: Dict[str, str] = field(default_factory=dict)
+    # Activity
+    activity: ActivityLevel = ActivityLevel.MOSTLY_SEDENTARY
 
     # Diet
     dietary_preference: DietaryPreference = DietaryPreference.OMNIVORE
     allergies: List[str] = field(default_factory=list)
     dislikes: List[str] = field(default_factory=list)
-    meals_per_day: int = 3
-    cooking_skill: CookingSkill = CookingSkill.INTERMEDIATE
+    meals_per_day: int = 4
     preferred_cuisines: List[str] = field(default_factory=list)
 
     # Training
     experience: ExperienceLevel = ExperienceLevel.BEGINNER
-    environment: TrainingEnvironment = TrainingEnvironment.GYM_COMMERCIAL
-    equipment: List[str] = field(default_factory=list)
-    days_per_week: int = 4
+    environment: TrainingEnvironment = TrainingEnvironment.GYM_FULL
+    days_per_week: int = 3
     session_length: SessionLength = SessionLength.STANDARD_60
 
     # Goals
     primary_goal: GoalArchetype = GoalArchetype.GENERAL_HEALTH
-    secondary_goals: List[GoalArchetype] = field(default_factory=list)
     target_weight_kg: Optional[float] = None
     timeline_weeks: int = 12
+    motivation: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
-        # Convert enums to values for JSON-friendliness
         for k, v in list(d.items()):
             if hasattr(v, "value"):
                 d[k] = v.value
@@ -101,29 +92,23 @@ class ClientProfile:
             waist_cm=d.get("waist_cm"),
             neck_cm=d.get("neck_cm"),
             hip_cm=d.get("hip_cm"),
+            visual_bf_label=d.get("visual_bf_label"),
+            wrist_cm=d.get("wrist_cm"),
             resting_hr=d.get("resting_hr", 60),
-            activity=ActivityLevel(d.get("activity", "moderate")),
-            sleep_hours=d.get("sleep_hours", 7.5),
-            stress_level=d.get("stress_level", 5),
-            health_conditions=[HealthCondition(c) for c in d.get("health_conditions", [])],
-            medications=d.get("medications", ""),
-            injuries=d.get("injuries", ""),
-            parq_answers=d.get("parq_answers", {}),
+            activity=ActivityLevel(d.get("activity", "mostly_sedentary")),
             dietary_preference=DietaryPreference(d.get("dietary_preference", "omnivore")),
             allergies=d.get("allergies", []),
             dislikes=d.get("dislikes", []),
-            meals_per_day=d.get("meals_per_day", 3),
-            cooking_skill=CookingSkill(d.get("cooking_skill", "intermediate")),
+            meals_per_day=d.get("meals_per_day", 4),
             preferred_cuisines=d.get("preferred_cuisines", []),
             experience=ExperienceLevel(d.get("experience", "beginner")),
-            environment=TrainingEnvironment(d.get("environment", "gym_commercial")),
-            equipment=d.get("equipment", []),
-            days_per_week=d.get("days_per_week", 4),
+            environment=TrainingEnvironment(d.get("environment", "gym_full")),
+            days_per_week=d.get("days_per_week", 3),
             session_length=SessionLength(d.get("session_length", "standard_60")),
             primary_goal=GoalArchetype(d.get("primary_goal", "general_health")),
-            secondary_goals=[GoalArchetype(g) for g in d.get("secondary_goals", [])],
             target_weight_kg=d.get("target_weight_kg"),
             timeline_weeks=d.get("timeline_weeks", 12),
+            motivation=d.get("motivation", ""),
         )
 
 
@@ -139,7 +124,7 @@ class TrainingPlan:
     density: SessionDensity
     exercise_rule: dict
     progression: ProgressionRule
-    weekly_schedule: Dict[str, List[dict]]   # weekday -> list of exercise specs
+    weekly_schedule: Dict[str, List[dict]]
     cardio_zones: CardioZones
     cardio_prescription: Dict[str, str]
     warmup_protocol: List[str]
@@ -151,9 +136,9 @@ class NutritionPlan:
     calories: float
     macros: Macros
     hydration: Hydration
+    micronutrients: MicronutrientTargets
     meal_plan: MealPlan
     cuisine: List[str]
-    overrides: Dict[str, str]
     supplements: dict
 
 
@@ -161,11 +146,12 @@ class NutritionPlan:
 class PlanRecommendation:
     profile: Dict[str, Any]
     archetype_signature: str
-    archetype_summary: Dict[str, Any]
+    trainee_category: TraineeProfile
     body_composition: BodyComposition
     energy: EnergyExpenditure
     training: TrainingPlan
     nutrition: NutritionPlan
+    muscular_potential: Optional[MuscularPotential]
     intake_report: IntakeReport
     warnings: List[str]
     notes: List[str]
@@ -180,13 +166,7 @@ class Recommender:
     def __init__(self, profile: ClientProfile):
         self.p = profile
 
-    # ------------------------------------------------------------------ #
-    def _archetype_signature(self) -> ArchetypeSignature:
-        # Infer somatotype if not supplied explicitly
-        somatotype = infer_somatotype(
-            self.p.weight_kg, self.p.height_cm, self.p.age, self.p.sex,
-            self.p.body_fat_pct,
-        )
+    def _archetype_signature(self, somatotype: Somatotype) -> ArchetypeSignature:
         age_group = infer_age_group(self.p.age)
         return ArchetypeSignature(
             goal=self.p.primary_goal,
@@ -200,137 +180,134 @@ class Recommender:
             session=self.p.session_length,
         )
 
-    # ------------------------------------------------------------------ #
     def recommend(self) -> PlanRecommendation:
-        # 1. Archetype signature
-        sig = self._archetype_signature()
+        p = self.p
 
-        # 2. Body composition
+        # 1. Body composition (with visual BF fallback)
         bc = body_composition(
-            self.p.weight_kg, self.p.height_cm, self.p.age, self.p.sex,
-            bf_pct=self.p.body_fat_pct,
-            waist_cm=self.p.waist_cm, neck_cm=self.p.neck_cm, hip_cm=self.p.hip_cm,
+            p.weight_kg, p.height_cm, p.age, p.sex,
+            bf_pct=p.body_fat_pct,
+            waist_cm=p.waist_cm, neck_cm=p.neck_cm, hip_cm=p.hip_cm,
+            visual_bf_label=p.visual_bf_label,
         )
 
-        # 3. Energy expenditure
+        # 2. Somatotype inference
+        somatotype = infer_somatotype(
+            p.weight_kg, p.height_cm, p.age, p.sex,
+            body_fat_pct=bc.body_fat_pct, wrist_cm=p.wrist_cm,
+        )
+
+        # 3. Trainee category (RippedBody 9 categories)
+        trainee = classify_trainee(
+            bc.body_fat_pct or 20, p.experience, p.sex, bc.bmi,
+        )
+
+        # 4. Energy expenditure
         ee = energy_expenditure(
-            self.p.weight_kg, self.p.height_cm, self.p.age, self.p.sex,
-            self.p.activity, self.p.primary_goal,
+            p.weight_kg, p.height_cm, p.age, p.sex,
+            p.activity, p.primary_goal, p.experience,
             lean_mass_kg=bc.lean_mass_kg,
+            target_weight_kg=p.target_weight_kg,
         )
 
-        # 4. Macros
+        # 5. Macros (RippedBody methodology)
         m = macros_for(
             calories=ee.calorie_target,
-            weight_kg=self.p.weight_kg, lean_mass_kg=bc.lean_mass_kg,
-            goal=self.p.primary_goal, sex=self.p.sex,
-            somatotype=sig.somatotype, dietary_pref=self.p.dietary_preference,
+            weight_kg=p.weight_kg, lean_mass_kg=bc.lean_mass_kg,
+            goal=p.primary_goal, sex=p.sex,
+            somatotype=somatotype, dietary_pref=p.dietary_preference,
+            body_fat_pct=bc.body_fat_pct,
+            target_weight_kg=p.target_weight_kg,
         )
 
-        # 5. Hydration
-        h = hydration(self.p.weight_kg, workout_minutes=45 * self.p.days_per_week)
+        # 6. Hydration
+        h = hydration(p.weight_kg, workout_minutes=45 * p.days_per_week)
 
-        # 6. Decision trees (training)
-        ts = training_split(self.p.primary_goal, self.p.experience,
-                            [c.value for c in self.p.health_conditions])
-        wv = weekly_volume(self.p.primary_goal, self.p.experience,
-                           self.p.days_per_week, sig.age_group)
-        ins = intensity_scheme(self.p.primary_goal, self.p.experience,
-                               [c.value for c in self.p.health_conditions])
-        per = periodisation(self.p.primary_goal, self.p.experience)
-        dty = session_density(self.p.primary_goal, self.p.session_length)
-        er = exercise_selection(
-            self.p.primary_goal, self.p.environment, self.p.equipment,
-            [c.value for c in self.p.health_conditions], sig.age_group,
-        )
-        prog = progression_rule(self.p.primary_goal, self.p.experience,
-                                [c.value for c in self.p.health_conditions])
-        cz = cardio_zones(self.p.age, self.p.resting_hr)
+        # 6b. Micronutrients (fruit/veg/fibre targets)
+        micros = micronutrient_targets(ee.calorie_target)
 
-        # 7. Weekly schedule (raw Exercise objects)
+        # 6c. Muscular potential (Berkhan model + FFMI)
+        mp = None
+        if bc.body_fat_pct is not None:
+            mp = muscular_potential(p.height_cm, p.weight_kg, bc.body_fat_pct)
+
+        # 7. Decision trees (training)
+        ts = training_split(p.primary_goal, p.experience, p.days_per_week)
+        wv = weekly_volume(p.primary_goal, p.experience, p.days_per_week)
+        ins = intensity_scheme(p.primary_goal, p.experience)
+        per = periodisation(p.primary_goal, p.experience)
+        dty = session_density(p.primary_goal, p.session_length)
+        er = exercise_selection(p.primary_goal, p.environment)
+        prog = progression_rule(p.primary_goal, p.experience)
+        cz = cardio_zones(p.age, p.resting_hr)
+
+        # 8. Weekly schedule
         sched_raw = weekly_split(
-            self.p.primary_goal, self.p.experience,
-            self.p.days_per_week, self.p.environment,
-            self.p.equipment, [c.value for c in self.p.health_conditions],
+            p.primary_goal, p.experience,
+            p.days_per_week, p.environment,
+            exercise_rule=er,
         )
-        # Pretty schedule with sets/reps based on intensity scheme
-        ins_for_schedule = ins
         sched = {}
         for day, exs in sched_raw.items():
             day_list = []
-            for i, ex in enumerate(exs):
+            for ex in exs:
                 is_compound = ex.pattern in (
                     "squat", "hinge", "horizontal_push",
-                    "vertical_push", "horizontal_pull", "vertical_pull"
+                    "vertical_push", "horizontal_pull", "vertical_pull",
                 )
-                rep_range = (ins_for_schedule.primary_reps
-                             if is_compound else
-                             ins_for_schedule.accessory_reps)
-                rpe = (ins_for_schedule.primary_rpe
-                       if is_compound else
-                       ins_for_schedule.accessory_rpe)
+                rep_range = ins.primary_reps if is_compound else ins.accessory_reps
+                rir = ins.primary_rir if is_compound else ins.accessory_rir
                 day_list.append({
                     "name": ex.name,
                     "pattern": ex.pattern,
                     "primary_muscle": ex.primary_muscle,
-                    "sets_reps": f"3 x {rep_range}",
-                    "rpe": rpe,
-                    "rest_seconds": dty.work_seconds + dty.rest_seconds,
+                    "sets_reps": f"3 × {rep_range}",
+                    "rir": rir,
+                    "rest_seconds": dty.rest_seconds,
                     "equipment": ex.equipment or ["bodyweight"],
                     "cues": ex.cues[:3],
                 })
             sched[day] = day_list
 
-        # 8. Decision trees (nutrition)
-        overrides = macro_overrides([c.value for c in self.p.health_conditions])
-        cuisines = cuisine_pick(self.p.preferred_cuisines,
-                                 self.p.dietary_preference)
-        supps = supplement_stack(self.p.primary_goal, self.p.sex,
-                                 [c.value for c in self.p.health_conditions])
+        # 9. Decision trees (nutrition)
+        cuisines = cuisine_pick(p.preferred_cuisines)
 
-        # 9. Meal plan assembly (primary cuisine first; rotate in plan)
+        # 10. Meal plan assembly
         primary_cuisine = cuisines[0] if cuisines else "american"
         day_plan = assemble_day(
             cuisine=primary_cuisine,
-            diet=self.p.dietary_preference,
+            diet=p.dietary_preference,
             target_calories=ee.calorie_target,
-            meals_per_day=self.p.meals_per_day,
-            allergens=self.p.allergies,
+            meals_per_day=p.meals_per_day,
+            allergens=p.allergies,
         )
 
-        # 10. Intake report (PAR-Q + health caveats)
-        intake_dict = self._flatten_answers_for_intake()
-        ir = intake_report(intake_dict)
+        # 11. Supplements
+        supps = supplement_stack(p.primary_goal, p.dietary_preference)
 
-        # 11. Final warning / note roll-up
+        # 12. Intake report (health/lifestyle recommendations)
+        ir = intake_report(
+            bmi_val=bc.bmi,
+            body_fat_pct=bc.body_fat_pct,
+            calorie_target=ee.calorie_target,
+            trainee_summary=trainee.summary,
+            trainee_recommendations=trainee.recommendations,
+        )
+
+        # 13. Signature
+        sig = self._archetype_signature(somatotype)
+
+        # 14. Cardio prescription
+        cardio_rx = self._cardio_prescription(p.primary_goal, p.days_per_week)
+
+        # 15. Warnings and notes
         warnings = list(ir.warnings)
         notes = list(ir.notes)
-        if self.p.stress_level >= 8:
-            notes.append("High self-reported stress — emphasise sleep and Zone-2 work.")
-        if not self.p.parq_answers or all(v == "no" for v in self.p.parq_answers.values()):
-            notes.append("PAR-Q clear — proceed with standard progression.")
-        if self.p.sleep_hours < 6:
-            warnings.append("Sleep < 6 h — recovery may be impaired; raise sleep hygiene priority.")
-        if self.p.timeline_weeks < 8 and self.p.primary_goal == GoalArchetype.MUSCLE_GAIN:
-            notes.append("Timeline < 8 weeks for hypertrophy — adjust expectations to ~0.5-1 kg/mo.")
-        if self.p.primary_goal == GoalArchetype.FAT_LOSS and \
-           ee.calorie_target < 1200:
-            warnings.append("Calorie target below 1200 kcal — medical supervision recommended.")
-
-        # 11b. Cardio prescription, warm-up/cool-down
-        cardio_rx = self._cardio_prescription(self.p.primary_goal,
-                                              self.p.days_per_week,
-                                              ts, self.p.health_conditions)
-        warmup = self._warmup_protocol()
-        cooldown = self._cooldown_protocol()
-
-        # 12. Build archetype summary
-        archetype_summary = self._archetype_summary(sig)
 
         return PlanRecommendation(
-            profile=self.p.to_dict(),
+            profile=p.to_dict(),
             archetype_signature=sig.code(),
-            archetype_summary=archetype_summary,
+            trainee_category=trainee,
             body_composition=bc,
             energy=ee,
             training=TrainingPlan(
@@ -348,102 +325,68 @@ class Recommender:
                 weekly_schedule=sched,
                 cardio_zones=cz,
                 cardio_prescription=cardio_rx,
-                warmup_protocol=warmup,
-                cooldown_protocol=cooldown,
+                warmup_protocol=self._warmup_protocol(),
+                cooldown_protocol=self._cooldown_protocol(),
             ),
             nutrition=NutritionPlan(
                 calories=ee.calorie_target,
                 macros=m,
                 hydration=h,
+                micronutrients=micros,
                 meal_plan=day_plan,
                 cuisine=cuisines,
-                overrides=overrides,
                 supplements={
                     "foundational": supps.foundational,
                     "goal_specific": supps.goal_specific,
                     "conditional": supps.conditional,
                 },
             ),
+            muscular_potential=mp,
             intake_report=ir,
             warnings=warnings,
             notes=notes,
         )
 
-    # ------------------------------------------------------------------ #
-    def _archetype_summary(self, sig: ArchetypeSignature) -> Dict[str, Any]:
-        return {
-            "signature_code": sig.code(),
-            "goal": sig.goal.value,
-            "somatotype": sig.somatotype.value,
-            "experience": sig.experience.value,
-            "age_group": sig.age_group.value,
-            "sex": sig.sex.value,
-            "activity": sig.activity.value,
-            "diet": sig.diet.value,
-            "environment": sig.environment.value,
-            "session": sig.session.value,
-        }
-
-    def _flatten_answers_for_intake(self) -> Dict[str, Any]:
-        """Build a flat dict for the questionnaire intake_report helper."""
-        answers: Dict[str, Any] = {}
-        answers.update(self.p.parq_answers)
-        answers["ls_sleep_hours"] = self.p.sleep_hours
-        answers["ls_stress"] = self.p.stress_level
-        answers["hh_conditions"] = [c.value for c in self.p.health_conditions]
-        return answers
-
-
-    # ------------------------------------------------------------------ #
-    def _cardio_prescription(self, goal, days_per_week: int,
-                             split: TrainingSplit,
-                             health: List[HealthCondition]) -> Dict[str, str]:
-        """Build a per-week cardio prescription."""
-        # Base weekly cardio minutes from split
-        weekly_minutes = round(180 * split.cardio_pct + 60)
-        z2_pct = {
-            GoalArchetype.FAT_LOSS: 0.6,
-            GoalArchetype.MUSCLE_GAIN: 0.5,
-            GoalArchetype.RECOMPOSITION: 0.6,
-            GoalArchetype.STRENGTH: 0.5,
-            GoalArchetype.ENDURANCE: 0.3,
-            GoalArchetype.ATHLETIC_PERFORMANCE: 0.4,
-            GoalArchetype.GENERAL_HEALTH: 0.7,
-            GoalArchetype.REHABILITATION: 0.8,
-        }[goal]
-        z2_min = round(weekly_minutes * z2_pct)
-        hiit_min = weekly_minutes - z2_min
-        # Spread
-        sessions = max(2, min(4, days_per_week))
-        z2_per = round(z2_min / sessions)
-        # Cardio-limited: walk-only
-        if HealthCondition.CARDIO_LIMITED in health:
+    def _cardio_prescription(self, goal: GoalArchetype,
+                             days_per_week: int) -> Dict[str, str]:
+        """Cardio prescription (RippedBody: use sparingly, if at all)."""
+        # RippedBody stance: cardio is supplementary, not the main driver.
+        # Diet drives the deficit; training drives muscle.
+        if goal == GoalArchetype.FAT_LOSS:
+            weekly_min = max(60, 30 * days_per_week)
             return {
-                "weekly_cardio_minutes": str(weekly_minutes),
-                "modality": "low-intensity walking only",
-                "zone_2": f"{z2_per} min walking, {sessions} sessions/week",
-                "hiit": "0 min",
-                "step_target": "8-10k steps/day outside sessions",
+                "weekly_cardio_minutes": str(weekly_min),
+                "modality": "Zone-2 walking or easy cycling",
+                "guidance": "Keep cardio supplementary. Diet drives the "
+                            "deficit; resistance training preserves muscle. "
+                            "Add cardio only if fat-loss rate is too slow.",
+                "step_target": "8,000-10,000 steps/day outside sessions",
             }
+        if goal == GoalArchetype.GENERAL_HEALTH:
+            return {
+                "weekly_cardio_minutes": "90-120",
+                "modality": "Zone-2 walking, cycling, or swimming",
+                "guidance": "For general health, aim for ~20-30 min of "
+                            "easy cardio 3-4×/week.",
+                "step_target": "8,000-10,000 steps/day",
+            }
+        # Muscle gain / recomp / strength: minimal cardio
         return {
-            "weekly_cardio_minutes": str(weekly_minutes),
-            "modality": "mixed (rower / bike / walk / jog)",
-            "zone_2": f"{z2_per} min per session, {sessions} sessions/week",
-            "hiit": (f"{hiit_min} min total weekly (2-3 sessions, "
-                     f"20-30 min each including warm-up)"),
-            "step_target": "8-10k steps/day outside sessions",
+            "weekly_cardio_minutes": "0-60",
+            "modality": "Optional Zone-2 walking",
+            "guidance": "Cardio is optional for this goal. Excessive cardio "
+                        "can interfere with recovery and blunt a calorie surplus.",
+            "step_target": "7,000+ steps/day for general health",
         }
 
-    # ------------------------------------------------------------------ #
     def _warmup_protocol(self) -> List[str]:
         return [
-            "5 min easy cardio (bike, walk, row) to raise temperature",
+            "5 min easy cardio (bike, walk, row) to raise body temperature",
             "Dynamic mobility: hip openers, thoracic rotations, ankle circles",
-            "Activation: 2 x 15 band pull-aparts, 2 x 10 glute bridges",
+            "Activation: 2 × 15 band pull-aparts, 2 × 10 glute bridges",
             "Specific warm-up: 2 sets of the first compound at ~50% then ~70%",
         ]
 
-    # ------------------------------------------------------------------ #
     def _cooldown_protocol(self) -> List[str]:
         return [
             "5 min walking / slow cycling to bring heart rate down",

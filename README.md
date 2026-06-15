@@ -1,69 +1,82 @@
-# Fitness Engine — Personalised Exercise & Meal Plan Generator
+# Fitness Engine v2.0 — Personalised Exercise & Meal Plan Generator
 
-A systematic, archetype-driven engine that takes detailed client profiles
-and produces fully-customised **training programs**, **nutrition
-plans**, and **coaching notes** — all grounded in evidence-based
-methodology and tunable at every layer.
+A streamlined, evidence-based engine grounded in the **RippedBody**
+methodology and the **Muscle & Strength** body-type framework. It takes
+a simple client profile and produces a fully-customised **training
+program**, **nutrition plan**, and **coaching notes**.
 
 > Goal: turn a 90-second intake into a defensible, executable, and
-> traceable plan a coach can hand to a client on day one.
+> traceable plan grounded in real coaching methodology.
+
+---
+
+## What changed in v2.0
+
+This is a ground-up redesign based on the RippedBody and M&S sources:
+
+| Aspect | v1.0 | v2.0 |
+|---|---|---|
+| **Goals** | 8 (incl. endurance, athletic, rehab) | **5** — fat_loss, muscle_gain, recomp, strength, general_health |
+| **Somatotype** | 4 (incl. mixed) | **3** — ectomorph, mesomorph, endomorph (M&S framework) |
+| **Experience** | 5 tiers | **3** — beginner, intermediate, advanced |
+| **Age groups** | 6 | **3** — young (18-30), adult (31-45), middle (46+) |
+| **Activity** | 5 levels | **4** — RippedBody TDEE multipliers |
+| **Diet** | 11 options | **2** — omnivore, vegan |
+| **Environment** | 7 | **3** — home_bodyweight, home_gym, gym_full |
+| **Calorie method** | Flat % of TDEE | **RippedBody**: 0.75%/wk cut, experience-tiered bulk |
+| **Macro method** | g/kg fixed | **RippedBody**: protein by lean mass, fat 15-30%, carbs remainder |
+| **Body fat** | Navy + Deurenberg | + **Visual estimation** (rippedbody.com/body-fat-guide) |
+| **Questionnaires** | 6 forms incl. PAR-Q | **3 lean forms** + auto-generated health recommendations |
+| **Trainee profiling** | None | **9 RippedBody categories** with strategy + pitfalls |
+| **Decision trees** | Generic | **RippedBody Training Pyramid** (adherence → VIF → progression) |
+
+---
+
+## Methodology sources
+
+- **Calories**: [rippedbody.com/calories](https://rippedbody.com/calories/) — Harris-Benedict BMR, 4-tier TDEE, 0.75%/wk fat loss
+- **Macros**: [rippedbody.com/macros](https://rippedbody.com/macros/) — protein by lean mass, fat/carb bands
+- **Body fat visual**: [rippedbody.com/body-fat-guide](https://rippedbody.com/body-fat-guide/)
+- **9 trainee categories**: [goal-setting 1](https://rippedbody.com/goal-setting-1/), [2](https://rippedbody.com/goal-setting-2/), [3](https://rippedbody.com/goal-setting-3/)
+- **Training programs**: [rippedbody.com/how-to-build-training-programs](https://rippedbody.com/how-to-build-training-programs/)
+- **Somatotype**: [muscleandstrength.com](https://www.muscleandstrength.com/articles/body-types-ectomorph-mesomorph-endomorph.html)
 
 ---
 
 ## Highlights
 
-- **9-dimensional archetype system** — every client becomes a
-  deterministic, reproducible signature like
-  `FAT-MESO-BEG-ADUL-F-SED-MEDI-GYM-60`. Combinatorial space:
-  **2,956,800** unique signatures.
-- **12 curated archetypes** with full profiles, summaries,
-  strengths, risks, and emphasis points.
-- **14 health/fitness calculators** — BMI, BMR (3 formulae), TDEE,
-  calorie target, body fat (Navy & BMI-method), macros, hydration,
-  1RM (3 formulae), cardio zones (Karvonen), somatotype inference.
-- **6 validated intake questionnaires** — PAR-Q+, health history,
-  lifestyle, dietary preferences, fitness history, goals.
-- **9 decision-tree modules** — split, volume, intensity, exercise
-  selection, periodisation, density, progression, macro overrides,
-  cuisine selection, supplement stack.
-- **40+ meal items** across 8 cuisines × 11 dietary patterns.
-- **38 exercise records** with progressions, regressions,
-  equipment tags, contraindications, and form cues.
-- **Weekly meal rotation generator** with cuisine cycling.
-- **HTML plan renderer** + **interactive intake form**.
-- **CLI tool** for end-to-end plan generation.
+- **9-dimensional archetype system** — deterministic signature like
+  `MUS-ECTO-BEG-YOUN-M-LIG-OMNI-GYM-60`. Combinatorial space: **25,920**.
+- **5 curated archetypes** covering the most common real-world scenarios.
+- **RippedBody trainee categories** — classifies clients into 1 of 9
+  physique states with tailored strategy, pitfalls, and recommendations.
+- **Visual body-fat estimation** — when tape measurements aren't available,
+  users self-classify against the RippedBody photo guide (7 bands).
+- **Experience-tiered calorie targets** — beginners bulk faster, cut at
+  0.75% BW/week; metabolic adaptation is accounted for.
+- **47 exercises** with equipment-aware selection (hard filter) and A/B variation.
+- **51 meals** across 8 cuisines, portion-scaled to hit calorie targets (≤0.4% error).
+- **Streamlined intake** — 3 short forms instead of 6; health screening
+  replaced by auto-generated recommendations.
 
 ---
 
 ## Quickstart
 
 ```bash
-# 1. One-shot: run every demo, generate every HTML plan, run every test
+# Run all demos, generate HTML, run tests
 bash examples/run_all.sh
 
-# 2. CLI - generate a plan from a sample client
+# CLI - generate a plan from a sample client
 python -m fitness_engine.cli profile examples/sample_client.json
-python -m fitness_engine.cli profile examples/sample_client.json \
-    --format html --out output/sara_plan.html
+python -m fitness_engine.cli profile examples/sample_client.json --format html --out output/plan.html
 
-# 3. CLI - archetype cohort showcase
+# CLI - archetype cohort showcase
 python -m fitness_engine.cli showcase
 
-# 4. CLI - list curated archetypes with their full profile
-python -m fitness_engine.cli archetypes
-
-# 5. CLI - scaffold a new client JSON profile
-python -m fitness_engine.cli new /tmp/new_client.json
-
-# 6. CLI - inspect the meal library
-python -m fitness_engine.cli meals
-
-# 7. Run the tests
+# Run the tests
 PYTHONPATH=. python3 tests/test_calculators.py
 PYTHONPATH=. python3 tests/test_integration.py
-
-# 8. Pretty-print a full plan for a client (text mode)
-python3 examples/demo_basic.py
 ```
 
 ---
@@ -79,27 +92,27 @@ from fitness_engine import (
 )
 
 profile = ClientProfile(
-    age=34, sex=Sex.FEMALE,
-    height_cm=168, weight_kg=72,
-    body_fat_pct=28,
-    activity=ActivityLevel.SEDENTARY,
+    age=22, sex=Sex.MALE,
+    height_cm=180, weight_kg=64,
+    body_fat_pct=11,
+    activity=ActivityLevel.LIGHTLY_ACTIVE,
     experience=ExperienceLevel.BEGINNER,
-    environment=TrainingEnvironment.GYM_COMMERCIAL,
-    equipment=["barbell","bench","dumbbells",
-               "machine","cardio_machine"],
+    environment=TrainingEnvironment.GYM_FULL,
     days_per_week=4,
     session_length=SessionLength.STANDARD_60,
-    primary_goal=GoalArchetype.FAT_LOSS,
-    dietary_preference=DietaryPreference.MEDITERRANEAN,
-    parq_answers={f"parq_{i}": "no" for i in range(1, 8)},
+    primary_goal=GoalArchetype.MUSCLE_GAIN,
+    dietary_preference=DietaryPreference.OMNIVORE,
+    meals_per_day=4,
 )
 
 rec = Recommender(profile).recommend()
 
-print(rec.archetype_signature)               # FAT-MESO-BEG-ADUL-F-SED-MEDI-GYM-60
-print(rec.energy.calorie_target)             # 1381.4
-print(rec.nutrition.macros.protein_g)        # 144.0 g
-print(rec.training.weekly_volume.total_sets) # 64 sets/wk
+print(rec.archetype_signature)                 # MUS-ECTO-BEG-YOUN-M-LIG-OMNI-GYM-60
+print(rec.trainee_category.category.value)     # skinny
+print(rec.trainee_category.strategy)           # bulk
+print(rec.energy.calorie_target)               # 3258.1
+print(rec.nutrition.macros.protein_g)          # 125.3 g
+print(rec.training.weekly_volume.total_sets)   # 70 sets/wk
 ```
 
 ---
@@ -107,143 +120,25 @@ print(rec.training.weekly_volume.total_sets) # 64 sets/wk
 ## Project layout
 
 ```
-fitness_engine/         core Python package (3,900 LOC)
-├── archetypes.py       9-dimensional archetype framework
-├── calculators.py      14 health / fitness numerical engines
-├── questionnaires.py   6 intake forms + intake_report()
-├── decision_trees.py   9+ decision-tree modules
-├── meal_plans.py       40+ meal items + cuisine / diet filters + week rotation
-├── exercise_plans.py   38 exercises with progressions
+fitness_engine/         core Python package
+├── archetypes.py       9-dimensional archetype framework + 9 trainee categories
+├── calculators.py      BMR, TDEE, calorie target, macros, visual BF, somatotype
+├── questionnaires.py   3 streamlined intake forms + auto-recommendations
+├── decision_trees.py   RippedBody Training Pyramid decision logic
+├── meal_plans.py       51 meals + cuisine/diet filters + portion scaling
+├── exercise_plans.py   47 exercises with equipment-aware selection
 ├── recommender.py      Orchestrator: profile -> PlanRecommendation
 └── cli.py              Command-line interface
 
 examples/
-├── intake_form.html         Interactive intake form (browser-based)
-├── sample_client.json       Sara Martinez (fat loss, beginner)
-├── sample_arthur.json       Arthur Chen (senior strength + HTN)
-├── sample_lena.json         Lena Volkov (endurance athlete)
-├── sample_maya.json         Maya Park (vegan athletic)
-├── sample_derek.json        Derek Thompson (shift-worker beginner)
-├── sample_emma.json         Emma Reyes (PCOS fat loss)
-├── demo_basic.py            Pretty-print full plan
-├── demo_arthur.py           Senior archetype demo
-├── demo_archetypes.py       Cohort comparison of all archetypes
-├── render_html.py           Standalone HTML renderer
-└── run_all.sh               One-shot verification script
+├── sample_*.json       6 pre-built client profiles
+├── render_html.py      Standalone HTML renderer
+└── run_all.sh          One-shot verification script
 
 tests/
-├── test_calculators.py   28 calculator unit tests
-└── test_integration.py   13 integration tests (all archetypes)
-
-docs/
-├── 01_overview.md       System architecture, design principles
-├── 02_archetypes.md     9 dimensions, 12 curated profiles
-├── 03_calculators.md    All 14 numerical calculators
-├── 04_questionnaires.md Intake form documentation
-├── 05_decision_trees.md Decision-tree logic
-├── 06_meal_plans.md     Meal library structure
-├── 07_exercise_plans.md Exercise library structure
-├── 08_api_reference.md  Python API reference
-└── 09_methodology.md    Evidence base, references, limitations
-
-output/                  Generated sample HTML plans
-└── {name}_plan.html     One per sample client
+├── test_calculators.py    41 calculator unit tests
+└── test_integration.py    14 integration tests (all archetypes)
 ```
-
----
-
-## Curated archetypes
-
-The engine ships with **12 hand-curated archetypes**, each capturing
-a real-world clinical or coaching scenario:
-
-| Code | Nickname | Goal × Profile |
-|---|---|---|
-| `office_worker_fat_loss` | The Desk-Bound Reset | Fat loss · sedentary beginner |
-| `ectomorph_lean_gain` | The Classic Hard Gainer | Muscle gain · ectomorph intermediate |
-| `postpartum_recomp` | The Reclaiming Parent | Recomp · postpartum home setup |
-| `senior_strength_health` | The Vital Retiree | Strength · 60+ novice |
-| `diabetes_reversal` | The Metabolic Rebuild | Health · T2 diabetes |
-| `athlete_endurance` | The Endurance Specialist | Endurance · advanced female |
-| `vegan_athlete` | The Plant-Powered Performer | Athletic · vegan male |
-| `keto_cruiser` | The Keto Cruiser | Health · ketogenic |
-| `shift_worker` | The Shift-Worker | Health · rotating shifts |
-| `back_pain_returner` | The Back-Pain Returner | Rehab · chronic LBP |
-| `youth_athlete` | The Youth Athlete | Athletic · 16-year-old |
-| `pcos_balancer` | The PCOS Balancer | Fat loss · PCOS |
-
-Each archetype has a nickname, summary, strengths, risks, and
-emphasis points stored in the catalog.
-
----
-
-## Sample cohort output
-
-| Archetype | kcal | P | C | F | sets/wk | Periodisation |
-|---|---|---|---|---|---|---|
-| Desk-Bound Reset | 1381 | 144 | 56 | 65 | 64 | Linear Progression |
-| Classic Hard Gainer | 2556 | 122 | 345 | 77 | 118 | Daily Undulating |
-| Reclaiming Parent | 1905 | 129 | 209 | 61 | 78 | Linear Progression |
-| Vital Retiree | 2279 | 144 | 255 | 76 | 40 | Linear Progression |
-| Metabolic Rebuild | 2253 | 143 | 237 | 82 | 40 | Linear Progression |
-| Endurance Specialist | 2825 | 93 | 423 | 85 | 52 | Block Periodisation |
-| Plant-Powered Performer | 3328 | 133 | 491 | 92 | 78 | Linear w/ RPE Cap |
-| Keto Cruiser | 2709 | 115 | 50 | 228 | 58 | Linear w/ RPE Cap |
-| Shift-Worker | 2368 | 118 | 323 | 67 | 46 | Linear Progression |
-| Back-Pain Returner | 1774 | 115 | 182 | 65 | 34 | Linear Progression |
-| Youth Athlete | 3282 | 122 | 476 | 98 | 78 | Linear w/ RPE Cap |
-| PCOS Balancer | 1464 | 160 | 44 | 72 | 64 | Linear Progression |
-
-Note how:
-- Fat loss / recomposition / rehab → maintenance calories or deficit
-- Muscle gain / athletic / endurance → surplus (200-1000 kcal)
-- Keto Cruiser → carbs collapsed to 50 g, fat at 70 % kcal
-- PCOS Balancer → highest protein (160 g) for insulin sensitivity
-
----
-
-## How it works
-
-```
-            ClientProfile
-                 │
-                 ▼
-        ArchetypeSignature  ────► unique 9-axis code
-                 │
-   ┌─────────────┼─────────────┐
-   ▼             ▼             ▼
-Calculators   Decision Trees  Protocol Libraries
- (BMI, BMR,    (split,        (meals, exercises,
- TDEE, BF%,    volume,        cardio zones,
- macros,       intensity,     supplements)
- cardio        progression)
- zones)
-   │             │             │
-   └─────────────┴─────────────┘
-                 │
-                 ▼
-       PlanRecommendation
-       (training + nutrition + notes)
-```
-
-Every output traces back to a specific combination of inputs — so
-any coach can audit, adjust, or override at any level.
-
----
-
-## Documentation index
-
-| Doc | Purpose |
-|---|---|
-| [docs/01_overview.md](docs/01_overview.md) | System architecture, design principles |
-| [docs/02_archetypes.md](docs/02_archetypes.md) | The 9 archetype dimensions, 12 curated profiles |
-| [docs/03_calculators.md](docs/03_calculators.md) | All 14 numerical calculators, formulae, examples |
-| [docs/04_questionnaires.md](docs/04_questionnaires.md) | PAR-Q+, health, lifestyle, diet, fitness, goals |
-| [docs/05_decision_trees.md](docs/05_decision_trees.md) | Decision logic from archetype to recommendation |
-| [docs/06_meal_plans.md](docs/06_meal_plans.md) | Meal library structure, cuisine / diet filters, weekly rotation |
-| [docs/07_exercise_plans.md](docs/07_exercise_plans.md) | Exercise library structure, splits, periodisation |
-| [docs/08_api_reference.md](docs/08_api_reference.md) | Python API: every public symbol |
-| [docs/09_methodology.md](docs/09_methodology.md) | Evidence base, references, limitations |
 
 ---
 
@@ -251,6 +146,4 @@ any coach can audit, adjust, or override at any level.
 
 This software is intended for **educational and coaching** use. It is
 not a substitute for medical advice. Clients with diagnosed conditions
-must obtain physician clearance before vigorous training, and PAR-Q
-responses must be reviewed by a qualified professional.
-# fit
+must obtain physician clearance before vigorous training.

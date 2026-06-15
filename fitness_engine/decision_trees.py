@@ -2,32 +2,24 @@
 decision_trees.py
 =================
 
-All decision logic that maps a ClientProfile to concrete plan parameters.
-Implemented as small, named functions so every rule is auditable,
-testable, and traceable to the originating archetype dimensions.
+Decision logic that maps a client profile to concrete plan parameters,
+grounded in the RippedBody / Muscle & Strength Training Pyramid
+methodology.
 
-The trees cover:
-  * Training split (strength : hypertrophy : cardio)
-  * Volume (sets per muscle group per week)
-  * Intensity (RPE / %1RM)
-  * Exercise selection rules (include / exclude / substitute)
-  * Periodisation strategy (linear, undulating, block)
-  * Session density (work : rest ratios)
-  * Progression scheme
-  * Deload frequency
-  * Macro split overrides for medical conditions
-  * Meal-plan cuisine selection
-  * Hydration and supplement overrides
+Key sources: rippedbody.com/how-to-build-training-programs/
+  • Step 1: Adherence → frequency / split choice
+  • Step 2: Volume, Intensity, Frequency → sets, reps, RIR
+  • Step 3: Progression → progression scheme by experience
+  • Step 4: Exercise selection → based on environment/equipment
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 from .archetypes import (
-    ActivityLevel, AgeGroup, DietaryPreference, ExperienceLevel,
-    GoalArchetype, HealthCondition, SessionLength, Sex,
-    Somatotype, TrainingEnvironment,
+    ExperienceLevel, GoalArchetype, SessionLength, Somatotype,
+    TrainingEnvironment,
 )
 
 
@@ -36,40 +28,69 @@ from .archetypes import (
 # --------------------------------------------------------------------------- #
 @dataclass
 class TrainingSplit:
-    strength_pct: float
-    hypertrophy_pct: float
-    cardio_pct: float
-    mobility_pct: float
+    name: str
+    days: List[str]       # day labels with session type
+    description: str
 
 
-def training_split(goal: GoalArchetype, experience: ExperienceLevel,
-                   health: List[HealthCondition]) -> TrainingSplit:
-    base = {
-        GoalArchetype.FAT_LOSS:            (0.20, 0.40, 0.35, 0.05),
-        GoalArchetype.MUSCLE_GAIN:         (0.40, 0.45, 0.10, 0.05),
-        GoalArchetype.RECOMPOSITION:       (0.35, 0.45, 0.15, 0.05),
-        GoalArchetype.STRENGTH:            (0.70, 0.20, 0.05, 0.05),
-        GoalArchetype.ENDURANCE:           (0.15, 0.15, 0.65, 0.05),
-        GoalArchetype.ATHLETIC_PERFORMANCE:(0.40, 0.25, 0.30, 0.05),
-        GoalArchetype.GENERAL_HEALTH:      (0.25, 0.30, 0.35, 0.10),
-        GoalArchetype.REHABILITATION:      (0.20, 0.30, 0.20, 0.30),
-    }[goal]
-    s, h, c, m = base
-    # Experience modifier: beginners benefit from more conditioning
-    if experience in (ExperienceLevel.NOVICE, ExperienceLevel.BEGINNER):
-        c += 0.05; h -= 0.03; s -= 0.02
-    # Health modifier
-    if HealthCondition.CARDIO_LIMITED in health:
-        c = max(0.10, c - 0.20); h += 0.15
-    if HealthCondition.JOINT_ISSUES_KNEE in health:
-        s = max(0.10, s - 0.10); h += 0.05; m += 0.05
-    # Renormalise to 1.0
-    tot = s + h + c + m
+def training_split(
+    goal: GoalArchetype, experience: ExperienceLevel,
+    days_per_week: int,
+) -> TrainingSplit:
+    """Choose a split based on days/week (RippedBody Frequency Matrix).
+
+    Simplified to the most common, proven setups:
+      2 days : Full Body A/B
+      3 days : Full Body A/B/C
+      4 days : Upper / Lower (A/B)
+      5 days : Upper Push / Upper Pull / Lower (variant)
+      6 days : Push/Pull/Legs × 2
+    """
+    if days_per_week <= 2:
+        return TrainingSplit(
+            name="Full Body 2-day",
+            days=["Full Body A", "Full Body B"],
+            description=(
+                "Two full-body sessions hitting every muscle group. "
+                "Ideal for beginners or time-constrained schedules. "
+                "Keep each session under 60 min."
+            ),
+        )
+    if days_per_week == 3:
+        return TrainingSplit(
+            name="Full Body 3-day",
+            days=["Full Body A", "Full Body B", "Full Body C"],
+            description=(
+                "Three full-body sessions per week. The RippedBody default "
+                "for most people — balances stimulus and recovery."
+            ),
+        )
+    if days_per_week == 4:
+        return TrainingSplit(
+            name="Upper / Lower",
+            days=["Upper A", "Lower A", "Upper B", "Lower B"],
+            description=(
+                "Four-day upper/lower split. Each muscle group is hit twice "
+                "per week. Great for intermediate trainees chasing hypertrophy."
+            ),
+        )
+    if days_per_week == 5:
+        return TrainingSplit(
+            name="Upper Push / Upper Pull / Legs",
+            days=["Push", "Pull", "Legs", "Upper Push", "Upper Pull"],
+            description=(
+                "Five-day split alternating push/pull/legs. Higher frequency "
+                "for advanced trainees who can recover adequately."
+            ),
+        )
+    # 6+
     return TrainingSplit(
-        strength_pct=round(s/tot, 2),
-        hypertrophy_pct=round(h/tot, 2),
-        cardio_pct=round(c/tot, 2),
-        mobility_pct=round(m/tot, 2),
+        name="Push / Pull / Legs × 2",
+        days=["Push A", "Pull A", "Legs A", "Push B", "Pull B", "Legs B"],
+        description=(
+            "Six-day PPL split. High volume and frequency — only for advanced "
+            "trainees with excellent recovery capacity."
+        ),
     )
 
 
@@ -85,60 +106,44 @@ class WeeklyVolume:
 
 def weekly_volume(
     goal: GoalArchetype, experience: ExperienceLevel,
-    days_per_week: int, age_group: AgeGroup,
+    days_per_week: int,
 ) -> WeeklyVolume:
-    """Working sets per muscle group per week.
+    """Sets per muscle group per week.
 
-    Reference ranges (synthesised from Renaissance Periodisation,
-    Mike Israetel, Stronger By Science):
-        Maintenance : 6-8
-        Hypertrophy : 10-14
-        Strength    : 6-10
-        Fat-loss    : 8-12
-        Recomp      : 10-12
-        Endurance   : 4-6
-        General     : 6-8
-        Rehab       : 4-6
+    RippedBody Pyramid guidelines:
+      Practical range: 10-20 sets/muscle/wk for hypertrophy.
+      Beginners start lower (6-10) and build up.
+      Cutting: reduce volume ~20-30% from maintenance.
     """
-    # Base sets/muscle/week
-    base_per_group = {
-        GoalArchetype.FAT_LOSS: 10,
-        GoalArchetype.MUSCLE_GAIN: 14,
-        GoalArchetype.RECOMPOSITION: 12,
-        GoalArchetype.STRENGTH: 8,
-        GoalArchetype.ENDURANCE: 5,
-        GoalArchetype.ATHLETIC_PERFORMANCE: 10,
-        GoalArchetype.GENERAL_HEALTH: 7,
-        GoalArchetype.REHABILITATION: 5,
-    }[goal]
+    # Base sets per major muscle group per week
+    if goal == GoalArchetype.STRENGTH:
+        base = {
+            ExperienceLevel.BEGINNER: 8,
+            ExperienceLevel.INTERMEDIATE: 12,
+            ExperienceLevel.ADVANCED: 16,
+        }[experience]
+    elif goal == GoalArchetype.FAT_LOSS:
+        base = {
+            ExperienceLevel.BEGINNER: 8,
+            ExperienceLevel.INTERMEDIATE: 10,
+            ExperienceLevel.ADVANCED: 12,
+        }[experience]
+    else:  # muscle_gain, recomp, general_health
+        base = {
+            ExperienceLevel.BEGINNER: 10,
+            ExperienceLevel.INTERMEDIATE: 14,
+            ExperienceLevel.ADVANCED: 18,
+        }[experience]
 
-    # Experience modifier
-    exp_factor = {
-        ExperienceLevel.NOVICE: 0.6,
-        ExperienceLevel.BEGINNER: 0.8,
-        ExperienceLevel.INTERMEDIATE: 1.0,
-        ExperienceLevel.ADVANCED: 1.15,
-        ExperienceLevel.ELITE: 1.25,
-    }[experience]
-
-    # Age modifier — seniors need slightly less volume per session but
-    # more frequency to manage recovery
-    age_factor = {
-        AgeGroup.YOUTH: 1.0,
-        AgeGroup.YOUNG_ADULT: 1.05,
-        AgeGroup.ADULT: 1.0,
-        AgeGroup.MIDDLE: 0.95,
-        AgeGroup.SENIOR: 0.85,
-        AgeGroup.ELDER: 0.75,
-    }[age_group]
-
-    sets = round(base_per_group * exp_factor * age_factor)
-    # 7 major muscle groups: chest, back, shoulders, quads, hams, glutes, calves
     groups = {
-        "chest": sets, "back": sets, "shoulders": sets,
-        "quads": sets, "hamstrings": sets, "glutes": sets,
-        "calves": max(4, sets - 4),
-        "arms": max(6, sets - 4),
+        "chest": base,
+        "back": base + 2,
+        "shoulders": max(6, base - 2),
+        "quads": base,
+        "hamstrings": max(6, base - 2),
+        "glutes": max(4, base - 4),
+        "calves": max(4, base - 6),
+        "arms": max(6, base - 4),
         "core": 6,
     }
     total = sum(groups.values())
@@ -146,8 +151,9 @@ def weekly_volume(
         total_sets=total,
         per_muscle_group=groups,
         rationale=(
-            f"{sets} sets per major group based on goal={goal.value}, "
-            f"experience={experience.value}, age={age_group.value}."
+            f"{base} sets/major group based on goal={goal.value}, "
+            f"experience={experience.value}. "
+            f"RippedBody practical range: 10-20 sets/muscle/wk."
         ),
     )
 
@@ -158,34 +164,50 @@ def weekly_volume(
 @dataclass
 class IntensityScheme:
     primary_reps: str
-    primary_rpe: float
+    primary_rir: float       # Reps in Reserve
     accessory_reps: str
-    accessory_rpe: float
+    accessory_rir: float
     rationale: str
 
 
-def intensity_scheme(goal: GoalArchetype, experience: ExperienceLevel,
-                     health: List[HealthCondition]) -> IntensityScheme:
-    base = {
-        GoalArchetype.FAT_LOSS: ("10-15", 7.5, "12-20", 8.0),
-        GoalArchetype.MUSCLE_GAIN: ("6-12", 8.0, "10-15", 8.5),
-        GoalArchetype.RECOMPOSITION: ("6-12", 8.0, "10-15", 8.0),
-        GoalArchetype.STRENGTH: ("3-6", 8.5, "6-10", 8.0),
-        GoalArchetype.ENDURANCE: ("12-20", 7.0, "15-25", 7.5),
-        GoalArchetype.ATHLETIC_PERFORMANCE: ("4-8", 8.0, "8-12", 8.0),
-        GoalArchetype.GENERAL_HEALTH: ("8-12", 7.5, "10-15", 7.5),
-        GoalArchetype.REHABILITATION: ("8-12", 6.5, "10-15", 7.0),
-    }[goal]
+def intensity_scheme(
+    goal: GoalArchetype, experience: ExperienceLevel,
+) -> IntensityScheme:
+    """Intensity (RIR) guidelines from the Training Pyramid.
 
-    p_reps, p_rpe, a_reps, a_rpe = base
-    if experience == ExperienceLevel.NOVICE:
-        p_rpe = min(p_rpe, 7.0); a_rpe = min(a_rpe, 7.5)
-    if HealthCondition.HYPERTENSION in health:
-        p_rpe = min(p_rpe, 7.0); a_rpe = min(a_rpe, 7.5)
+    RIR = Reps in Reserve (how many more reps you could have done).
+    RippedBody RIR guidelines:
+      4-6 reps/set → 4-0 RIR
+      6-8 reps/set → 3-0 RIR
+      8-12 reps/set → 2-0 RIR
+      >12 reps/set → 1-0 RIR
+    """
+    if goal == GoalArchetype.STRENGTH:
+        reps, rir = "3-6", 2.0
+        acc_reps, acc_rir = "6-10", 2.0
+    elif goal == GoalArchetype.FAT_LOSS:
+        reps, rir = "6-12", 2.0
+        acc_reps, acc_rir = "10-15", 1.0
+    elif goal == GoalArchetype.MUSCLE_GAIN:
+        reps, rir = "6-12", 2.0
+        acc_reps, acc_rir = "8-15", 1.0
+    else:  # recomp, general_health
+        reps, rir = "8-12", 2.0
+        acc_reps, acc_rir = "10-15", 2.0
+
+    # Beginners stay further from failure
+    if experience == ExperienceLevel.BEGINNER:
+        rir = max(rir, 3.0)
+        acc_rir = max(acc_rir, 3.0)
+
     return IntensityScheme(
-        primary_reps=p_reps, primary_rpe=round(p_rpe, 1),
-        accessory_reps=a_reps, accessory_rpe=round(a_rpe, 1),
-        rationale=f"RPE scaled by goal={goal.value}, experience={experience.value}.",
+        primary_reps=reps, primary_rir=rir,
+        accessory_reps=acc_reps, accessory_rir=acc_rir,
+        rationale=(
+            f"RIR-based intensity. Goal={goal.value}, "
+            f"experience={experience.value}. "
+            f"Beginners stay 3+ RIR; advanced push closer to failure."
+        ),
     )
 
 
@@ -194,78 +216,58 @@ def intensity_scheme(goal: GoalArchetype, experience: ExperienceLevel,
 # --------------------------------------------------------------------------- #
 @dataclass
 class ExerciseRule:
-    """A rule that include/exclude/substitute exercises."""
+    """Include/exclude/substitute directives for exercise selection."""
     include: List[str]
     exclude: List[str]
     substitute_map: Dict[str, List[str]]
 
 
 def exercise_selection(
-    goal: GoalArchetype,
-    environment: TrainingEnvironment,
-    equipment: List[str],
-    health: List[HealthCondition],
-    age_group: AgeGroup,
+    goal: GoalArchetype, environment: TrainingEnvironment,
 ) -> ExerciseRule:
-    """Output a rule-set that the exercise library can apply."""
+    """Generate exercise selection rules based on environment + goal.
+
+    Equipment mapping:
+      home_bodyweight → bodyweight only
+      home_gym        → dumbbells, bands, bench, pullup_bar, kettlebells
+      gym_full        → everything (barbell, rack, machines, cables)
+    """
     include: List[str] = []
     exclude: List[str] = []
     subs: Dict[str, List[str]] = {}
 
-    # Universal pull / push / legs / core patterns
-    include.extend(["horizontal_push", "vertical_pull", "hinge",
-                    "squat", "carry", "core"])
+    # Universal compound patterns
+    include.extend([
+        "horizontal_push", "vertical_pull", "hinge",
+        "squat", "carry", "core",
+    ])
 
-    # Goal specifics
-    if goal in (GoalArchetype.STRENGTH, GoalArchetype.ATHLETIC_PERFORMANCE):
+    # Goal-specific emphasis
+    if goal in (GoalArchetype.STRENGTH,):
         include.extend(["barbell_squat", "deadlift", "bench_press",
-                        "overhead_press", "row"])
+                        "overhead_press"])
     if goal in (GoalArchetype.MUSCLE_GAIN, GoalArchetype.RECOMPOSITION):
         include.extend(["incline_press", "lat_pulldown", "leg_curl",
-                        "lateral_raise", "triceps_extension"])
-    if goal in (GoalArchetype.FAT_LOSS, GoalArchetype.GENERAL_HEALTH):
-        include.extend(["kettlebell_swing", "row_machine", "circuit_pattern"])
-    if goal in (GoalArchetype.ENDURANCE, GoalArchetype.ATHLETIC_PERFORMANCE):
-        include.extend(["interval_pattern", "tempo_run"])
+                        "lateral_raise"])
 
-    # Environment restrictions
-    if environment in (TrainingEnvironment.HOME_BODYWEIGHT,
-                       TrainingEnvironment.OUTDOOR):
-        for lift in ["barbell_squat", "deadlift", "bench_press", "overhead_press"]:
-            subs[lift] = ["bodyweight_squat", "hinge_pattern",
-                          "push_up", "pike_push_up"]
-    if environment == TrainingEnvironment.HOME_MINIMAL:
-        subs["barbell_squat"] = ["goblet_squat", "dumbbell_squat"]
-        subs["deadlift"]      = ["dumbbell_rdl", "single_leg_rdl"]
-        subs["bench_press"]   = ["dumbbell_bench", "floor_press"]
-        subs["overhead_press"]= ["dumbbell_press", "landmine_press"]
-
-    # Equipment gaps
-    if "barbell" not in equipment:
-        for lift in ["barbell_squat", "deadlift", "bench_press",
-                     "overhead_press", "row"]:
-            subs.setdefault(lift, [])
-
-    # Health restrictions
-    if HealthCondition.JOINT_ISSUES_KNEE in health:
-        subs["squat"] = ["box_squat", "leg_press", "split_squat"]
-        subs["barbell_squat"] = ["belt_squat", "hack_squat"]
-        exclude.append("pistol_squat")
-    if HealthCondition.JOINT_ISSUES_SHOULDER in health:
-        subs["overhead_press"] = ["landmine_press", "neutral_press"]
-        subs["bench_press"] = ["floor_press", "neutral_grip_db_press"]
-        exclude.extend(["behind_neck_press", "upright_row"])
-    if HealthCondition.LOWER_BACK in health:
-        subs["deadlift"] = ["trap_bar_dl", "rdl_light", "back_extension"]
-        exclude.append("conventional_deadlift")
-    if HealthCondition.CARDIO_LIMITED in health:
-        subs["interval_pattern"] = ["low_intensity_walk"]
-        exclude.extend(["sprint", "burpee"])
-    if HealthCondition.PREGNANCY in health:
-        exclude.extend(["supine_work", "valsalva_loads", "high_impact"])
-    if HealthCondition.POSTPARTUM in health and age_group != AgeGroup.ELDER:
-        subs["core"] = ["diaphragmatic_breathing", "pelvic_floor_activation"]
-        exclude.extend(["sit_up", "heavy_ab_wheel"])
+    # Environment-based substitutions
+    if environment == TrainingEnvironment.HOME_BODYWEIGHT:
+        subs = {
+            "barbell_squat": ["bodyweight_squat", "split_squat_bw"],
+            "deadlift": ["bodyweight_rdl", "bodyweight_good_morning"],
+            "bench_press": ["push_up", "incline_push_up"],
+            "overhead_press": ["pike_push_up"],
+            "barbell_row": ["inverted_row"],
+            "lat_pulldown": ["inverted_row", "band_pulldown"],
+        }
+    elif environment == TrainingEnvironment.HOME_GYM:
+        subs = {
+            "barbell_squat": ["goblet_squat", "dumbbell_squat"],
+            "deadlift": ["dumbbell_rdl", "single_leg_rdl"],
+            "bench_press": ["dumbbell_bench", "floor_press"],
+            "overhead_press": ["dumbbell_press"],
+        }
+    # gym_full → no substitutions needed
 
     return ExerciseRule(
         include=sorted(set(include)),
@@ -275,48 +277,44 @@ def exercise_selection(
 
 
 # --------------------------------------------------------------------------- #
-# Periodisation                                                               #
+# Progression                                                                 #
 # --------------------------------------------------------------------------- #
 @dataclass
-class Periodisation:
-    scheme: str
-    cycle_weeks: int
-    deload_every: int
-    description: str
+class ProgressionRule:
+    primary: str
+    accessory: str
+    rule: str
 
 
-def periodisation(goal: GoalArchetype, experience: ExperienceLevel) -> Periodisation:
-    if experience in (ExperienceLevel.NOVICE, ExperienceLevel.BEGINNER):
-        return Periodisation(
-            scheme="Linear Progression",
-            cycle_weeks=8, deload_every=4,
-            description=(
-                "Add 2.5–5 kg or 1–2 reps per session until stall; "
-                "then mini-deload or small reset."
-            ),
+def progression_rule(
+    goal: GoalArchetype, experience: ExperienceLevel,
+) -> ProgressionRule:
+    """Progression scheme by experience (RippedBody Pyramid).
+
+    Beginners: linear progression — add weight/reps each session.
+    Intermediate: double progression — hit top of rep range, then add load.
+    Advanced: periodised — wave loading, RPE-based auto-regulation.
+    """
+    if experience == ExperienceLevel.BEGINNER:
+        return ProgressionRule(
+            primary="Add reps or load each session until you stall.",
+            accessory="Add 1 rep per set per week.",
+            rule="Linear progression. When you hit the top of the rep range "
+                 "for all sets, increase load by 2.5 kg.",
         )
-    if goal == GoalArchetype.STRENGTH:
-        return Periodisation(
-            scheme="5/3/1 (Wendler)",
-            cycle_weeks=4, deload_every=4,
-            description="3-week wave + 1-week deload; assistance by category.",
+    if experience == ExperienceLevel.INTERMEDIATE:
+        return ProgressionRule(
+            primary="Double progression: hit top of rep range on all sets, "
+                    "then add 2.5 kg.",
+            accessory="Rep-range progression with a weekly target.",
+            rule="Add load in small increments when the top of the rep range "
+                 "is consistently achieved.",
         )
-    if goal == GoalArchetype.MUSCLE_GAIN:
-        return Periodisation(
-            scheme="Daily Undulating Periodisation (DUP)",
-            cycle_weeks=6, deload_every=6,
-            description="Rep target rotates day-to-day within the week.",
-        )
-    if goal == GoalArchetype.ENDURANCE:
-        return Periodisation(
-            scheme="Block Periodisation",
-            cycle_weeks=12, deload_every=4,
-            description="Base → Build → Peak blocks; deload each transition.",
-        )
-    return Periodisation(
-        scheme="Linear with RPE Cap",
-        cycle_weeks=6, deload_every=6,
-        description="Add load if RPE cap not reached; deload every 6 weeks.",
+    # Advanced
+    return ProgressionRule(
+        primary="Wave loading / RPE-based auto-regulation.",
+        accessory="Chase rep PRs on accessories; vary load by daily readiness.",
+        rule="Periodise intensity. Use RIR caps and deload every 4-6 weeks.",
     )
 
 
@@ -331,118 +329,88 @@ class SessionDensity:
 
 
 def session_density(goal: GoalArchetype, session: SessionLength) -> SessionDensity:
+    """Rest periods by goal (RippedBody Pyramid Step 5).
+
+    Strength: 3-5 min rest (180-300s)
+    Hypertrophy: 1.5-3 min rest (90-180s)
+    Fat loss: 60-90s rest (circuit/density style)
+    """
     base = {
-        GoalArchetype.FAT_LOSS: (30, 15),
-        GoalArchetype.MUSCLE_GAIN: (45, 90),
-        GoalArchetype.RECOMPOSITION: (45, 75),
         GoalArchetype.STRENGTH: (60, 180),
-        GoalArchetype.ENDURANCE: (180, 60),
-        GoalArchetype.ATHLETIC_PERFORMANCE: (45, 90),
-        GoalArchetype.GENERAL_HEALTH: (40, 60),
-        GoalArchetype.REHABILITATION: (30, 60),
+        GoalArchetype.MUSCLE_GAIN: (45, 120),
+        GoalArchetype.RECOMPOSITION: (45, 90),
+        GoalArchetype.FAT_LOSS: (40, 60),
+        GoalArchetype.GENERAL_HEALTH: (45, 90),
     }[goal]
     w, r = base
+
     if session == SessionLength.EXPRESS_30:
-        # Supersets to compress
-        r = max(15, r - 30)
-        return SessionDensity(w, r, "supersets + circuits")
+        r = max(30, r - 30)
+        return SessionDensity(w, r, "supersets / circuits")
     if session == SessionLength.SHORT_45:
-        r = max(15, r - 15)
+        r = max(45, r - 15)
     if session == SessionLength.EXTENDED_90:
         r = r + 30
     return SessionDensity(w, r, "standard density")
 
 
 # --------------------------------------------------------------------------- #
-# Progression                                                                 #
+# Periodisation                                                               #
 # --------------------------------------------------------------------------- #
 @dataclass
-class ProgressionRule:
-    primary: str
-    accessory: str
-    rule: str
+class Periodisation:
+    scheme: str
+    cycle_weeks: int
+    deload_every: int
+    description: str
 
 
-def progression_rule(goal: GoalArchetype, experience: ExperienceLevel,
-                     health: List[HealthCondition]) -> ProgressionRule:
-    if experience in (ExperienceLevel.NOVICE, ExperienceLevel.BEGINNER):
-        return ProgressionRule(
-            primary="Add reps each session; add load when top of rep range.",
-            accessory="Add 1 rep/set/week.",
-            rule="Linear, weekly; resets after 3 stalls.",
+def periodisation(
+    goal: GoalArchetype, experience: ExperienceLevel,
+) -> Periodisation:
+    if experience == ExperienceLevel.BEGINNER:
+        return Periodisation(
+            scheme="Linear Progression",
+            cycle_weeks=8, deload_every=6,
+            description=(
+                "Add load or reps each session. Deload (reduce volume ~50%) "
+                "every 6 weeks or when progress stalls."
+            ),
         )
-    if goal == GoalArchetype.STRENGTH:
-        return ProgressionRule(
-            primary="Wave-load: 3×5, 3×3, 1×5, deload.",
-            accessory="Pump work RPE 8; chase rep PRs.",
-            rule="Top-set + back-off volume.",
+    if experience == ExperienceLevel.INTERMEDIATE:
+        return Periodisation(
+            scheme="Double Progression",
+            cycle_weeks=8, deload_every=5,
+            description=(
+                "Progress within a rep range, then add load. "
+                "Deload every 5 weeks."
+            ),
         )
-    if HealthCondition.HYPERTENSION in health:
-        return ProgressionRule(
-            primary="Slow RPE climb, never above 7.",
-            accessory="Rep-range progression only.",
-            rule="Sub-maximal, no 1RM testing.",
-        )
-    return ProgressionRule(
-        primary="Double-progression: hit top of rep range, then add load.",
-        accessory="Rep-range progression with weekly target.",
-        rule="Add load in 2.5-kg increments when reps capped.",
+    return Periodisation(
+        scheme="Periodised / Auto-regulated",
+        cycle_weeks=12, deload_every=4,
+        description=(
+            "Wave loading or RPE-based blocks. Deload every 4 weeks. "
+            "Adjust intensity based on daily readiness."
+        ),
     )
-
-
-# --------------------------------------------------------------------------- #
-# Macro / diet overrides for medical conditions                                #
-# --------------------------------------------------------------------------- #
-def macro_overrides(health: List[HealthCondition]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
-    if HealthCondition.TYPE_2_DIABETES in health or \
-       HealthCondition.PRE_DIABETES in health:
-        out["carbs"]    = "moderate, low-glycaemic; cluster around training"
-        out["fibre"]    = "30-40 g/day minimum"
-        out["meal_freq"]= "3 meals + 1 snack to flatten glucose curve"
-    if HealthCondition.HYPERTENSION in health:
-        out["sodium"]   = "< 2300 mg/day"
-        out["potassium"]= "3500+ mg/day from whole foods"
-    if HealthCondition.HIGH_CHOLESTEROL in health:
-        out["saturated_fat"] = "< 7% kcal"
-        out["fibre"]         = "≥ 30 g/day, with soluble fibre"
-    if HealthCondition.PCOS in health:
-        out["protein"]   = "≥ 1.8 g/kg"
-        out["glycaemic"] = "low-GI, anti-inflammatory"
-    if HealthCondition.IBS in health or HealthCondition.CELIAC in health:
-        out["fodmap"]    = "low-FODMAP / gluten-free substitutions"
-    if HealthCondition.PREGNANCY in health:
-        out["folate"]    = "≥ 600 mcg"
-        out["iron"]      = "27 mg with vit C co-factor"
-    if HealthCondition.POSTPARTUM in health:
-        out["protein"]   = "≥ 1.8 g/kg to support recovery"
-        out["omega3"]    = "≥ 250 mg DHA+EPA"
-    return out
 
 
 # --------------------------------------------------------------------------- #
 # Cuisine selection                                                           #
 # --------------------------------------------------------------------------- #
-def cuisine_pick(prefs: List[str], diet: DietaryPreference) -> List[str]:
-    """Pick 2-3 cuisines that suit preferences + dietary pattern.
+def cuisine_pick(prefs: List[str]) -> List[str]:
+    """Pick cuisines for meal rotation.
 
-    Order respects user preference: their first-listed cuisine comes
-    first so the recommender anchors on it.
+    If the user added a traditional cuisine preference, it comes first.
+    Otherwise we default to American + Mediterranean.
     """
-    if not prefs:
-        if diet == DietaryPreference.MEDITERRANEAN:
-            return ["mediterranean"]
-        if diet == DietaryPreference.KETO:
-            return ["mediterranean", "american"]
+    if not prefs or prefs == ["none"]:
         return ["american", "mediterranean"]
-    # Preserve user order; build a list of distinct cuisines
     out = []
-    seen = set()
     for c in prefs:
-        if c in seen:
-            continue
-        out.append(c)
-        seen.add(c)
+        if c and c != "none" and c not in out:
+            out.append(c)
     if not out:
         out = ["american", "mediterranean"]
     return out[:3]
@@ -453,38 +421,55 @@ def cuisine_pick(prefs: List[str], diet: DietaryPreference) -> List[str]:
 # --------------------------------------------------------------------------- #
 @dataclass
 class SupplementStack:
-    foundational: List[Tuple[str, str, str]]   # (name, dose, rationale)
+    foundational: List[Tuple[str, str, str]]
     goal_specific: List[Tuple[str, str, str]]
     conditional: List[Tuple[str, str, str]]
 
 
-def supplement_stack(goal: GoalArchetype, sex: Sex,
-                     health: List[HealthCondition]) -> SupplementStack:
-    found = [
-        ("Vitamin D", "1000-2000 IU/day", "Most adults deficient; supports bone + immune."),
-        ("Omega-3", "1-2 g EPA+DHA/day", "Anti-inflammatory, cardiovascular health."),
-        ("Magnesium", "200-400 mg/day", "Sleep, muscle function, glycaemic control."),
-        ("Protein powder", "as needed", "Convenience to hit protein target."),
-    ]
-    if sex == Sex.FEMALE:
-        found.append(("Iron", "test-first; supplement if low", "Pre-menopausal common deficiency."))
-    if HealthCondition.LOWER_BACK in health or \
-       HealthCondition.JOINT_ISSUES_KNEE in health:
-        found.append(("Collagen peptides", "10-15 g/day", "Connective-tissue support."))
+def supplement_stack(
+    goal: GoalArchetype, diet_pref,
+) -> SupplementStack:
+    """Evidence-based supplement recommendations.
 
+    RippedBody stance: supplements are the least important layer (bottom
+    of the pyramid). Most people don't need them, but a few are
+    well-supported.
+    """
+    from .archetypes import DietaryPreference
+
+    found: List[Tuple[str, str, str]] = []
     goal_sp: List[Tuple[str, str, str]] = []
+
+    # Vegan-specific foundational supplements
+    if diet_pref == DietaryPreference.VEGAN:
+        found.append(("Vitamin B12", "1000 mcg, 2-3×/week",
+                       "Vegans cannot get B12 from plant foods. Essential."))
+        found.append(("Vitamin D3", "1000-2000 IU/day",
+                       "Most adults are deficient; supports bone + immune."))
+        found.append(("Algae omega-3 (EPA/DHA)", "250-500 mg/day",
+                       "Vegan alternative to fish oil for EPA/DHA."))
+        found.append(("Creatine monohydrate", "5 g/day",
+                       "Not found in plant foods; boosts training performance."))
+    else:
+        found.append(("Vitamin D3", "1000-2000 IU/day",
+                       "Most adults are deficient; supports bone + immune."))
+        found.append(("Omega-3 (EPA/DHA)", "1-2 g/day",
+                       "Anti-inflammatory, cardiovascular support."))
+
+    # Goal-specific
     if goal in (GoalArchetype.MUSCLE_GAIN, GoalArchetype.STRENGTH,
-                GoalArchetype.RECOMPOSITION, GoalArchetype.ATHLETIC_PERFORMANCE):
-        goal_sp.append(("Creatine monohydrate", "5 g/day", "Most evidenced performance aid."))
-    if goal == GoalArchetype.ENDURANCE:
-        goal_sp.append(("Sodium bicarbonate", "300 mg/kg pre-race", "Buffering for high-intensity efforts."))
+                GoalArchetype.RECOMPOSITION):
+        goal_sp.append(("Creatine monohydrate", "5 g/day",
+                         "Most evidenced performance supplement."))
+    if goal == GoalArchetype.MUSCLE_GAIN:
+        goal_sp.append(("Whey protein", "as needed",
+                         "Convenience to hit protein targets."))
+    if diet_pref == DietaryPreference.VEGAN and goal != GoalArchetype.MUSCLE_GAIN:
+        goal_sp.append(("Vegan protein powder", "as needed",
+                         "Convenience to hit protein targets."))
 
-    conditional: List[Tuple[str, str, str]] = []
-    if HealthCondition.TYPE_2_DIABETES in health:
-        conditional.append(("Berberine", "500 mg 2-3x/day", "Adjunct glycaemic control."))
-    if HealthCondition.HYPERTENSION in health:
-        conditional.append(("Potassium citrate", "as advised", "Counter sodium load."))
-
-    return SupplementStack(foundational=found,
-                           goal_specific=goal_sp,
-                           conditional=conditional)
+    return SupplementStack(
+        foundational=found,
+        goal_specific=goal_sp,
+        conditional=[],
+    )

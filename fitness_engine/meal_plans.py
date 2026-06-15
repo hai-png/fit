@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import random
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .archetypes import DietaryPreference
 
@@ -44,6 +44,7 @@ class MealItem:
     tags: List[str] = field(default_factory=list)
     ingredients: List[str] = field(default_factory=list)
     recipe: str = ""
+    portion_scale: float = 1.0      # multiplier applied to hit calorie targets
 
 
 @dataclass
@@ -502,47 +503,14 @@ def by_slot(slot: str) -> List[MealItem]:
     return [m for m in MEAL_LIBRARY if m.slot == slot]
 
 
-# Dietary compatibility matrix: for each DietaryPreference, which
-# meal tags are acceptable.
+# Dietary compatibility matrix — simplified to omnivore and vegan only.
 DIET_COMPATIBILITY = {
     DietaryPreference.OMNIVORE: {
         "omnivore", "pollo_pescatarian", "pescatarian",
-        "vegetarian", "vegan", "keto", "mediterranean",
-    },
-    DietaryPreference.PESCATARIAN: {
-        "pescatarian", "vegetarian", "vegan",
-    },
-    DietaryPreference.POLLO_PESCATARIAN: {
-        "pollo_pescatarian", "pescatarian", "vegetarian", "vegan",
-    },
-    DietaryPreference.VEGETARIAN: {
         "vegetarian", "vegan",
     },
     DietaryPreference.VEGAN: {
         "vegan",
-    },
-    DietaryPreference.KETO: {
-        "keto", "omnivore", "pollo_pescatarian", "pescatarian",
-    },
-    DietaryPreference.MEDITERRANEAN: {
-        "omnivore", "pollo_pescatarian", "pescatarian",
-        "vegetarian", "vegan", "mediterranean",
-    },
-    DietaryPreference.LOW_FODMAP: {
-        "omnivore", "pollo_pescatarian", "pescatarian",
-        "vegetarian", "vegan",
-    },
-    DietaryPreference.HALAL: {
-        "omnivore", "pollo_pescatarian", "pescatarian",
-        "vegetarian", "vegan", "mediterranean",
-    },
-    DietaryPreference.KOSHER: {
-        "omnivore", "pollo_pescatarian", "pescatarian",
-        "vegetarian", "vegan", "mediterranean",
-    },
-    DietaryPreference.FLEXIBLE: {
-        "omnivore", "pollo_pescatarian", "pescatarian",
-        "vegetarian", "vegan", "keto", "mediterranean",
     },
 }
 
@@ -571,47 +539,102 @@ def filter_compatible(diet: DietaryPreference,
 # --------------------------------------------------------------------------- #
 # Plan assembler                                                              #
 # --------------------------------------------------------------------------- #
+# Per-slot calorie weights for each meal frequency. These let the assembler
+# allocate the daily target across meals *proportionally* rather than greedily
+# dumping the full target into the first meal. Weights sum to 1.0 per layout.
+_SLOT_WEIGHTS: Dict[int, List[Tuple[str, float]]] = {
+    3: [("breakfast", 0.30), ("lunch", 0.35), ("dinner", 0.35)],
+    4: [("breakfast", 0.25), ("lunch", 0.30), ("snack", 0.15), ("dinner", 0.30)],
+    5: [("breakfast", 0.22), ("snack", 0.12), ("lunch", 0.28),
+        ("snack", 0.12), ("dinner", 0.26)],
+}
+
+
+def _slot_layout(meals_per_day: int) -> List[Tuple[str, float]]:
+    """Return [(slot_name, weight), ...] for a given meal frequency.
+
+    Values outside 3-5 are clamped to the nearest valid layout rather
+    than silently producing a single dinner.
+    """
+    mpd = max(3, min(5, meals_per_day))
+    return _SLOT_WEIGHTS[mpd]
+
+
+def _scale_meal(meal: MealItem, scale: float) -> MealItem:
+    """Return a shallow copy of *meal* with all numeric fields multiplied by
+    *scale* (recorded in ``portion_scale``)."""
+    import copy
+    scale = round(max(0.25, min(scale, 3.0)), 2)  # keep within a sane band
+    m = copy.copy(meal)
+    m.calories = round(meal.calories * scale, 0)
+    m.protein_g = round(meal.protein_g * scale, 1)
+    m.carbs_g = round(meal.carbs_g * scale, 1)
+    m.fat_g = round(meal.fat_g * scale, 1)
+    m.fibre_g = round(meal.fibre_g * scale, 1)
+    m.portion_scale = scale
+    return m
+
+
+def _slot_candidates(pool: List[MealItem], slot: str,
+                     diet: DietaryPreference, allergens: List[str]) -> List[MealItem]:
+    """Candidate meals for a slot within the cuisine-filtered *pool*;
+    falls back to any compatible meal if the cuisine pool is empty."""
+    candidates = [m for m in pool if m.slot == slot]
+    if not candidates:
+        candidates = [m for m in filter_compatible(diet, allergens)
+                      if m.slot == slot]
+    return candidates
+
+
 def assemble_day(
     cuisine: str, diet: DietaryPreference, target_calories: float,
     meals_per_day: int = 3, allergens: Optional[List[str]] = None,
 ) -> MealPlan:
-    """Pick a breakfast, lunch, dinner (and snack) that best match the
-    calorie target while honouring dietary pattern and cuisine."""
-    pool = filter_compatible(diet, allergens or [])
+    """Pick breakfast / lunch / dinner (+ snacks) that match the calorie
+    target while honouring dietary pattern and cuisine.
+
+    Two-pass approach for accuracy:
+      1. **Proportional allocation** — each slot gets a fraction of the
+         daily target (see ``_SLOT_WEIGHTS``); the best-matching meal is
+         chosen per slot.  This fixes the old greedy bug where the first
+         meal absorbed the entire daily budget.
+      2. **Portion scaling** — after base meals are chosen, a single
+         uniform scale factor brings the day total to the target, so the
+         plan is genuinely calorie-accurate (within rounding).
+    """
+    allergens = allergens or []
+    pool = filter_compatible(diet, allergens)
     if cuisine:
         pool = [m for m in pool if m.cuisine == cuisine]
     if not pool:
-        pool = filter_compatible(diet, allergens or [])
+        pool = filter_compatible(diet, allergens)
 
-    if meals_per_day == 3:
-        chosen_slots = ["breakfast", "lunch", "dinner"]
-    elif meals_per_day == 4:
-        chosen_slots = ["breakfast", "lunch", "snack", "dinner"]
-    elif meals_per_day == 5:
-        chosen_slots = ["breakfast", "snack", "lunch", "snack", "dinner"]
-    else:
-        chosen_slots = ["dinner"]
-
-    picks: List[MealItem] = []
-    for slot in chosen_slots:
-        candidates = [m for m in pool if m.slot == slot]
+    layout = _slot_layout(meals_per_day)
+    base_picks: List[MealItem] = []
+    for slot, weight in layout:
+        slot_target = target_calories * weight
+        candidates = _slot_candidates(pool, slot, diet, allergens)
         if not candidates:
-            candidates = [m for m in filter_compatible(diet, allergens or [])
-                          if m.slot == slot]
-        if candidates:
-            used = sum(m.calories for m in picks)
-            remaining = target_calories - used
-            candidates.sort(key=lambda m: abs(m.calories - remaining))
-            picks.append(candidates[0])
+            continue
+        candidates.sort(key=lambda m: abs(m.calories - slot_target))
+        base_picks.append(candidates[0])
+
+    # Uniform scale so the day total matches the target.
+    base_total = sum(m.calories for m in base_picks)
+    scale = target_calories / base_total if base_total > 0 else 1.0
+    picks = [_scale_meal(m, scale) for m in base_picks]
 
     cu = cuisine or "mixed"
+    actual = sum(m.calories for m in picks)
     return MealPlan(
         name=f"{diet.value.title()} day plan ({cu.title()})",
         cuisine=cuisine or "", diet=diet, meals=picks,
         notes=[
             f"Target {target_calories:.0f} kcal",
-            f"Total {sum(m.calories for m in picks):.0f} kcal",
+            f"Total {actual:.0f} kcal",
             f"Protein {sum(m.protein_g for m in picks):.0f} g",
+            f"Carbs {sum(m.carbs_g for m in picks):.0f} g",
+            f"Fat {sum(m.fat_g for m in picks):.0f} g",
         ],
     )
 
@@ -626,30 +649,28 @@ def assemble_week(
 ) -> List[MealPlan]:
     """Generate a `days`-day rotation that cycles through compatible
     meals before repeating. Accepts optional secondary cuisines to
-    draw from when the primary is exhausted.
+    draw from when the primary is exhausted. Each day is portion-scaled
+    to the target (same accuracy fix as :func:`assemble_day`).
     """
+    allergens = allergens or []
     out: List[MealPlan] = []
     cuisines = [cuisine] + (secondary_cuisines or [])
     cuisines = [c for c in cuisines if c]
     if not cuisines:
         cuisines = ["american", "mediterranean"]
 
-    used_by_slot = {
+    layout = _slot_layout(meals_per_day)
+    used_by_slot: Dict[str, List[Tuple[str, str]]] = {
         "breakfast": [], "lunch": [], "dinner": [], "snack": [],
     }
 
     for day_idx in range(days):
-        picks: List[MealItem] = []
-        slots_order = {
-            3: ["breakfast", "lunch", "dinner"],
-            4: ["breakfast", "lunch", "snack", "dinner"],
-            5: ["breakfast", "snack", "lunch", "snack", "dinner"],
-        }.get(meals_per_day, ["dinner"])
-
-        for slot in slots_order:
+        base_picks: List[MealItem] = []
+        for slot, weight in layout:
+            slot_target = target_calories * weight
             chosen = None
             for cu in cuisines:
-                pool = [m for m in filter_compatible(diet, allergens or [])
+                pool = [m for m in filter_compatible(diet, allergens)
                         if m.cuisine == cu and m.slot == slot]
                 if not pool:
                     continue
@@ -657,36 +678,38 @@ def assemble_week(
                 fresh = [m for m in pool if (m.name, m.cuisine) not in used]
                 if not fresh:
                     fresh = pool
-                used_cal = sum(m.calories for m in picks)
-                remaining = target_calories - used_cal
-                fresh.sort(key=lambda m: (abs(m.calories - remaining),
+                fresh.sort(key=lambda m: (abs(m.calories - slot_target),
                                           random.random()))
                 chosen = fresh[0]
                 used_by_slot[slot].append((chosen.name, chosen.cuisine))
                 break
 
             if chosen is None:
-                pool = [m for m in filter_compatible(diet, allergens or [])
-                        if m.slot == slot]
+                pool = _slot_candidates(filter_compatible(diet, allergens),
+                                        slot, diet, allergens)
                 if pool:
-                    used_cal = sum(m.calories for m in picks)
-                    remaining = target_calories - used_cal
-                    pool.sort(key=lambda m: abs(m.calories - remaining))
+                    pool.sort(key=lambda m: abs(m.calories - slot_target))
                     chosen = pool[0]
                     used_by_slot[slot].append((chosen.name, chosen.cuisine))
 
             if chosen:
-                picks.append(chosen)
+                base_picks.append(chosen)
+
+        # Portion-scale the day to the target.
+        base_total = sum(m.calories for m in base_picks)
+        scale = target_calories / base_total if base_total > 0 else 1.0
+        picks = [_scale_meal(m, scale) for m in base_picks]
 
         day_name = ["Monday", "Tuesday", "Wednesday", "Thursday",
                     "Friday", "Saturday", "Sunday"][day_idx % 7]
         cu_label = "+".join(cuisines) if len(cuisines) > 1 else cuisines[0]
+        actual = sum(m.calories for m in picks)
         out.append(MealPlan(
             name=f"{day_name} - {cu_label.title()} ({diet.value.title()})",
             cuisine=cuisines[0], diet=diet, meals=picks,
             notes=[
                 f"Target {target_calories:.0f} kcal",
-                f"Total {sum(m.calories for m in picks):.0f} kcal",
+                f"Total {actual:.0f} kcal",
                 f"Protein {sum(m.protein_g for m in picks):.0f} g",
                 f"Carbs   {sum(m.carbs_g   for m in picks):.0f} g",
                 f"Fat     {sum(m.fat_g     for m in picks):.0f} g",
