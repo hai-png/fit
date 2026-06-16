@@ -635,3 +635,64 @@ The fit repository implements the classification but does NOT provide the decisi
 13. **BFR mention for joint pain** — shows awareness of clinical training methods
 14. **NEAT awareness** — recognizes that activity levels change during dieting
 15. **Wait period before assessment** — correctly advises waiting 3-4 weeks before adjusting calories
+
+---
+
+## 15. REMEDIATION STATUS (Applied in this workspace)
+
+The priority findings above have been acted on in the codebase. See `../reports/remediation-report.md` for the implementation matrix and verification commands.
+
+### Fixed / implemented
+
+1. **Mifflin-St Jeor is now the default BMR formula** in `energy_expenditure()`; Harris-Benedict remains available as a comparison/fallback function.
+2. **Activity multipliers now match the reference guide** using the existing 4-tier enum: 1.25 / 1.45 / 1.60 / 1.80.
+3. **Sex-specific calorie floors are enforced**: 1500 kcal for men and 1200 kcal otherwise when `sex` is supplied.
+4. **Alpert's maximum fat-loss safeguard has been added** when body-fat or lean-mass data is available.
+5. **Visual body-fat bands now use sex-specific guide-aligned ranges**.
+6. **Somatotype-based fat macro adjustment has been removed**; macro defaults no longer vary by body-type taxonomy.
+7. **Normalized FFMI coefficient has been corrected to 6.3**.
+8. **Hydration now uses the guide formula**: 30 ml/kg, optional +300 ml for men, plus workout fluid.
+9. **Anthropometric indices added**: WHtR, WHR, ABSI, and Devine IBW.
+10. **Macro adjustment helper added**: protein preserved, carbs/fats changed at a practical 1:1–2:1 calorie split, rounded to 5 g.
+11. **Adaptive TDEE helper added** with complete-day filtering, outlier exclusion, trend-weight comparison, formula blending, and confidence labels.
+12. **Reverse dieting protocol added** with conservative/moderate/aggressive weekly calorie increases and monitoring rules.
+13. **Cardio prescription now respects the reference-guide interference cap**: cardio remains below half of weekly lifting time.
+14. **Goal/strategy conflicts are surfaced** by the recommender when the selected goal differs from the body-composition decision-tree recommendation.
+15. **Regression tests added** for the corrected behaviours.
+
+### Verification
+
+```bash
+python3 -m unittest tests.test_calculators tests.test_integration
+# Ran 80 tests — OK
+
+bash examples/run_all.sh
+# All checks complete
+```
+
+### Not fully implemented because they require a broader product/app layer
+
+- Verified food database, barcode scanning, recipe builder, custom food storage.
+- Progress-photo storage and trend visualization.
+- Full longitudinal 9-point body-measurement tracking.
+- Wearable/step-count integrations.
+- Keto trial workflow with daily mood/energy/training ratings.
+- Female menstrual-cycle-aware trend interpretation.
+- Full diet-mode expansion (keto, Mediterranean, vegetarian, gluten-free, paleo, low-carb) with matching meal-library coverage.
+
+### Second-pass remediation update
+
+The following additional analysis findings have now been addressed in code:
+
+- Completed the activity model with `moderately_active` and `very_active`.
+- Added body-fat-aware fat-loss rates plus Alpert deficit capping.
+- Added executable bulk/cut/recomp phase decision tree.
+- Added optional macro cycling.
+- Expanded diet modes beyond omnivore/vegan and added diet-mode-aware macro presets.
+- Added meal compatibility and extra tagged meals so every supported diet mode can assemble a plan.
+- Added explicit comprehensive exercise and meal protocol builders for every archetype/profile combination in `fitness_engine/protocols.py`.
+- Added protocol output to `PlanRecommendation` as `rec.protocols`.
+- Added tests for every enumerated archetype signature at the protocol level and every diet mode at the meal-plan level.
+- Upgraded progress tracking guidance to full 9-point measurements, monthly photos, and strength logging.
+
+Verification now passes with `79` tests plus the full demo script.

@@ -7,8 +7,9 @@ methodology and the Muscle & Strength body-type framework.
 
 Key sources
 -----------
-• Calories:  rippedbody.com/calories — Harris-Benedict BMR,
-             4-tier TDEE multipliers, 0.75%/wk fat-loss rate,
+• Calories:  Mifflin-St Jeor primary BMR (reference-guide default),
+             RippedBody/MacroFactor activity multipliers, adaptive
+             metabolic buffers, Alpert max-fat-loss safeguard, and
              experience-tiered bulk surplus.
 • Macros:    rippedbody.com/macros — protein by lean mass or body weight,
              fat 15-30% of calories, carbs as the remainder.
@@ -21,9 +22,9 @@ Every calculator is pure-functional and returns a typed result object.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .archetypes import (
     ActivityLevel, AgeGroup, ExperienceLevel, GoalArchetype, Sex, Somatotype,
@@ -160,41 +161,54 @@ def body_fat_bmi_method(b: float, age: int, sex: Sex) -> float:
 # When tape measurements aren't available, the user compares themselves to
 # the visual ranges from rippedbody.com/body-fat-guide. Each band maps to a
 # representative midpoint used for downstream calculations.
-VISUAL_BF_BANDS: List[Tuple[str, Tuple[float, float], float, str]] = [
-    # (label, (low_pct, high_pct), midpoint, description)
-    ("shredded",     (6.0, 9.0),   8.0,  "Visible abs, vascularity, lower-back fat gone."),
-    ("very_lean",    (10.0, 12.0), 11.0, "Clear abs, some definition everywhere."),
-    ("lean",         (13.0, 15.0), 14.0, "Blurry six-pack when flexed."),
-    ("average_fit",  (16.0, 19.0), 17.5, "Some muscle definition; no visible abs."),
-    ("soft",         (20.0, 24.0), 22.0, "Little definition; noticeable fat layer."),
-    ("overweight",   (25.0, 29.0), 27.0, "Round physique; fat is dominant."),
-    ("obese",        (30.0, 40.0), 33.0, "Significant fat; obese category."),
-]
-
-VISUAL_BF_LABEL_TO_KEY: Dict[str, str] = {
-    b[0]: b[0] for b in VISUAL_BF_BANDS
+VISUAL_BF_BANDS: Dict[Sex, List[Tuple[str, Tuple[float, float], float, str]]] = {
+    Sex.MALE: [
+        # (label, (low_pct, high_pct), midpoint, description)
+        ("shredded",     (7.0, 9.0),   8.0,  "Competition-ready; every muscle visible, striations."),
+        ("very_lean",    (10.0, 11.0), 10.5, "Cover-model lean; clear abs and broad definition."),
+        ("lean",         (12.0, 14.0), 13.0, "Athletic; blurry six-pack and good definition."),
+        ("average_fit",  (15.0, 17.0), 16.0, "Some definition; abs not clearly visible."),
+        ("soft",         (18.0, 20.0), 19.0, "Average; soft appearance, no visible abs."),
+        ("overweight",   (21.0, 24.0), 22.5, "Significant fat layer and love handles."),
+        ("obese",        (25.0, 40.0), 30.0, "Heavy fat accumulation; health risk rises."),
+    ],
+    Sex.FEMALE: [
+        ("shredded",     (14.0, 17.0), 15.5, "Competition-ready; very lean for women."),
+        ("very_lean",    (17.0, 19.0), 18.0, "Fitness-model lean with visible definition."),
+        ("lean",         (20.0, 22.0), 21.0, "Athletic; clear shape and muscle definition."),
+        ("average_fit",  (23.0, 26.0), 24.5, "Fit/average; some definition."),
+        ("soft",         (27.0, 31.0), 29.0, "Average; softer appearance."),
+        ("overweight",   (32.0, 36.0), 34.0, "Overweight; substantial fat accumulation."),
+        ("obese",        (37.0, 50.0), 40.0, "Obese category; health risk rises."),
+    ],
 }
 
+# Backwards-compatible male labels for callers/tests that iterate the constant.
+VISUAL_BF_LABEL_TO_KEY: Dict[str, str] = {b[0]: b[0] for b in VISUAL_BF_BANDS[Sex.MALE]}
 
-def body_fat_from_visual(label: str) -> float:
+
+def _visual_bands_for(sex: Sex = Sex.MALE) -> List[Tuple[str, Tuple[float, float], float, str]]:
+    return VISUAL_BF_BANDS.get(sex, VISUAL_BF_BANDS[Sex.MALE])
+
+
+def body_fat_from_visual(label: str, sex: Sex = Sex.MALE) -> float:
     """Return a representative body-fat % from a visual-band label.
 
-    Labels correspond to the rippedbody.com/body-fat-guide photo ranges.
-    Most people underestimate their body fat — the midpoints are set
-    accordingly.
+    Labels map to the sex-specific ranges in the reference guide's RippedBody
+    visual body-fat tables.
     """
-    for lbl, (lo, hi), mid, _ in VISUAL_BF_BANDS:
+    for lbl, _, mid, _ in _visual_bands_for(sex):
         if label == lbl:
             return mid
     raise ValueError(
         f"Unknown visual BF label '{label}'. "
-        f"Choose from: {[b[0] for b in VISUAL_BF_BANDS]}"
+        f"Choose from: {[b[0] for b in _visual_bands_for(sex)]}"
     )
 
 
-def visual_bf_description(label: str) -> str:
+def visual_bf_description(label: str, sex: Sex = Sex.MALE) -> str:
     """Return the human-readable description for a visual BF band."""
-    for lbl, _, _, desc in VISUAL_BF_BANDS:
+    for lbl, _, _, desc in _visual_bands_for(sex):
         if label == lbl:
             return desc
     raise ValueError(f"Unknown visual BF label '{label}'.")
@@ -225,7 +239,7 @@ def body_composition(
         bf = body_fat_navy(sex, height_cm, neck_cm, waist_cm, hip_cm)
         method = "navy"
     elif visual_bf_label is not None:
-        bf = body_fat_from_visual(visual_bf_label)
+        bf = body_fat_from_visual(visual_bf_label, sex)
         method = "visual"
     else:
         bf = body_fat_bmi_method(b, age, sex)
@@ -246,19 +260,23 @@ def body_composition(
 # --------------------------------------------------------------------------- #
 # Energy expenditure (RippedBody methodology)                                 #
 # --------------------------------------------------------------------------- #
-# RippedBody's 4-tier activity multipliers (rippedbody.com/calories Step 2).
+# Reference-guide activity multipliers. The enum remains 4-tier for
+# backwards compatibility, mapping to the guide's Sedentary, Lightly Active,
+# Moderately Active midpoint, and Active midpoint respectively.
 ACTIVITY_MULTIPLIERS = {
-    ActivityLevel.SEDENTARY: 1.15,
-    ActivityLevel.MOSTLY_SEDENTARY: 1.35,
+    ActivityLevel.SEDENTARY: 1.25,
+    ActivityLevel.MOSTLY_SEDENTARY: 1.45,
     ActivityLevel.LIGHTLY_ACTIVE: 1.55,
-    ActivityLevel.HIGHLY_ACTIVE: 1.75,
+    ActivityLevel.MODERATELY_ACTIVE: 1.60,
+    ActivityLevel.HIGHLY_ACTIVE: 1.80,
+    ActivityLevel.VERY_ACTIVE: 1.90,
 }
 
 
 def bmr_harris_benedict(
     weight_kg: float, height_cm: float, age: int, sex: Sex,
 ) -> float:
-    """Harris-Benedict BMR (metric) — RippedBody's preferred formula.
+    """Harris-Benedict BMR (metric). Kept for comparison/fallback.
 
     Men:   BMR = 66 + (13.7 × kg) + (5 × cm) − (6.8 × age)
     Women: BMR = 655 + (9.6 × kg) + (1.8 × cm) − (4.7 × age)
@@ -271,7 +289,7 @@ def bmr_harris_benedict(
 def bmr_mifflin(
     weight_kg: float, height_cm: float, age: int, sex: Sex,
 ) -> float:
-    """Mifflin-St Jeor BMR (alternative reference)."""
+    """Mifflin-St Jeor BMR (reference-guide default general formula)."""
     base = 10 * weight_kg + 6.25 * height_cm - 5 * age
     return base + 5 if sex == Sex.MALE else base - 161
 
@@ -299,11 +317,32 @@ BULK_MONTHLY_RATE = {
 FAT_LOSS_WEEKLY_RATE = 0.0075
 
 
+def fat_loss_rate_for_bodyfat(body_fat_pct: Optional[float], sex: Sex) -> float:
+    """Body-fat-aware weekly loss-rate target.
+
+    Reference guide range is 0.25-1.0% BW/week, with leaner trainees needing
+    slower cuts and higher-BF trainees tolerating faster rates.
+    """
+    if body_fat_pct is None:
+        return FAT_LOSS_WEEKLY_RATE
+    # Convert female thresholds roughly to male-equivalent by subtracting 8%.
+    male_equiv_bf = body_fat_pct - (8 if sex == Sex.FEMALE else 0)
+    if male_equiv_bf <= 12:
+        return 0.004
+    if male_equiv_bf <= 18:
+        return 0.006
+    if male_equiv_bf <= 28:
+        return 0.0075
+    return 0.01
+
+
 def calorie_target(
     tdee_value: float, goal: GoalArchetype,
     bodyweight_kg: float, experience: ExperienceLevel,
     target_weight_kg: Optional[float] = None,
     fat_loss_rate: float = FAT_LOSS_WEEKLY_RATE,
+    sex: Optional[Sex] = None,
+    body_fat_pct: Optional[float] = None,
 ) -> Tuple[float, dict]:
     """Goal-driven calorie target (RippedBody methodology).
 
@@ -323,12 +362,21 @@ def calorie_target(
     if goal == GoalArchetype.FAT_LOSS:
         bw = target_weight_kg or bodyweight_kg
         deficit = bw * fat_loss_rate * 1100  # 1100 kcal per kg fat
+        alpert_max_deficit = None
+        if body_fat_pct is not None:
+            fat_mass_lb = bodyweight_kg * (body_fat_pct / 100.0) * 2.20462
+            alpert_max_deficit = max(0.0, fat_mass_lb * 22.0)
+            if deficit > alpert_max_deficit:
+                deficit = alpert_max_deficit
         target = tdee_value - deficit
         breakdown.update({
             "mode": "fat_loss (cut)",
             "weekly_loss_rate_pct": fat_loss_rate * 100,
             "daily_deficit": round(deficit, 1),
         })
+        if alpert_max_deficit is not None:
+            breakdown["alpert_max_daily_deficit"] = round(alpert_max_deficit, 1)
+            breakdown["alpert_safeguard_applied"] = deficit >= 0 and round(deficit, 1) == round(alpert_max_deficit, 1)
     elif goal == GoalArchetype.MUSCLE_GAIN:
         monthly_rate = BULK_MONTHLY_RATE.get(experience, 0.01)
         surplus = bodyweight_kg * monthly_rate * 330  # 330 kcal per kg gain/mo
@@ -354,15 +402,15 @@ def calorie_target(
         target = tdee_value
         breakdown.update({"mode": "default", "delta": 0.0})
 
-    # Safety floor — never drop below ~1200 kcal without a warning flag
-    MIN_CALORIES = 1200
-    if target < MIN_CALORIES:
+    # Safety floor — reference guide: women ≥1200 kcal, men ≥1500 kcal.
+    min_calories = 1500 if sex == Sex.MALE else 1200
+    if target < min_calories:
         breakdown["warning"] = (
-            f"Calculated target {target:.0f} kcal is below the {MIN_CALORIES} "
-            f"kcal safety floor; clamped to {MIN_CALORIES}. Medical "
+            f"Calculated target {target:.0f} kcal is below the {min_calories} "
+            f"kcal safety floor; clamped to {min_calories}. Medical "
             f"supervision recommended."
         )
-        target = MIN_CALORIES
+        target = min_calories
 
     breakdown["target"] = round(target, 1)
     return round(target, 1), breakdown
@@ -376,10 +424,18 @@ def energy_expenditure(
     target_weight_kg: Optional[float] = None,
 ) -> EnergyExpenditure:
     """Compute BMR → TDEE → target in one pass."""
-    bmr = bmr_harris_benedict(weight_kg, height_cm, age, sex)
+    # Reference guide ranks Mifflin-St Jeor above Harris-Benedict for modern
+    # populations. Katch-McArdle is exposed separately for body-composition
+    # specialists, but Mifflin is the default app estimate.
+    bmr = bmr_mifflin(weight_kg, height_cm, age, sex)
     tdee_v = tdee(bmr, activity)
+    bf_pct = None
+    if lean_mass_kg is not None and weight_kg > 0:
+        bf_pct = max(0.0, min(60.0, (1 - lean_mass_kg / weight_kg) * 100))
+    rate = fat_loss_rate_for_bodyfat(bf_pct, sex) if goal == GoalArchetype.FAT_LOSS else FAT_LOSS_WEEKLY_RATE
     target, breakdown = calorie_target(
         tdee_v, goal, weight_kg, experience, target_weight_kg,
+        fat_loss_rate=rate, sex=sex, body_fat_pct=bf_pct,
     )
     return EnergyExpenditure(
         bmr=round(bmr, 1),
@@ -409,7 +465,8 @@ def _protein_target(
     """
     if body_fat_pct is not None and lean_mass_kg is not None and lean_mass_kg > 0:
         if goal == GoalArchetype.FAT_LOSS:
-            mult = 2.6 if is_vegan else 2.5
+            lean_cut = body_fat_pct is not None and body_fat_pct <= 12
+            mult = 2.6 if is_vegan else (2.8 if lean_cut else 2.5)
             label = 'vegan' if is_vegan else 'omnivore'
             return round(lean_mass_kg * mult, 1), \
                 f"{mult} g/kg lean mass (cutting, BF% known, {label})"
@@ -449,39 +506,61 @@ def macros_for(
     from .archetypes import DietaryPreference
 
     is_vegan = dietary_pref == DietaryPreference.VEGAN
+    is_keto = dietary_pref == DietaryPreference.KETO
+    is_low_carb = dietary_pref == DietaryPreference.LOW_CARB
+    is_mediterranean = dietary_pref == DietaryPreference.MEDITERRANEAN
+    is_paleo = dietary_pref == DietaryPreference.PALEO
+    is_high_protein = dietary_pref == DietaryPreference.HIGH_PROTEIN
 
     # 1. Protein
     protein_g, protein_rationale = _protein_target(
         goal, weight_kg, lean_mass_kg, body_fat_pct, target_weight_kg,
         is_vegan=is_vegan,
     )
+    if is_high_protein:
+        hp_floor = round(weight_kg * 2.2, 1)
+        if protein_g < hp_floor:
+            protein_g = hp_floor
+            protein_rationale += "; high-protein preset floor 2.2 g/kg BW"
 
-    # 2. Fat — percentage band depends on goal
-    if goal == GoalArchetype.FAT_LOSS:
-        fat_pct = 0.20   # lower end for cutting (15-25%)
+    # 2. Fat — percentage band depends on goal and diet mode
+    if is_keto:
+        # Keto is an explicit diet-mode exception: cap carbs, protein still set
+        # first, and fat fills the remaining calories.
+        carb_g = min(50.0, round(calories * 0.08 / 4, 1))
+        fat_g = max(0.5 * weight_kg, (calories - protein_g * 4 - carb_g * 4) / 9)
+        fat_g = round(max(0.0, fat_g), 1)
+        fat_pct = fat_g * 9 / calories
     else:
-        fat_pct = 0.25   # middle for bulking (20-30%)
+        if goal == GoalArchetype.FAT_LOSS:
+            fat_pct = 0.20   # lower end for cutting (15-25%)
+        else:
+            fat_pct = 0.25   # middle for bulking (20-30%)
+        if is_low_carb:
+            fat_pct = 0.40
+        elif is_mediterranean:
+            fat_pct = 0.35
+        elif is_paleo:
+            fat_pct = 0.35
 
-    # Somatotype refinement: endomorphs skew slightly lower fat, ectomorphs higher
-    if somatotype == Somatotype.ENDOMORPH:
-        fat_pct = max(0.15, fat_pct - 0.03)
-    elif somatotype == Somatotype.ECTOMORPH:
-        fat_pct = min(0.30, fat_pct + 0.03)
+        # No somatotype-based macro adjustment. The reference guide rejects fixed
+        # body-type macro tweaks; individual adjustment should come from outcome
+        # data, adherence, training performance, and preference.
+        fat_g = calories * fat_pct / 9
+        # Enforce minimum fat floor
+        fat_floor = 0.5 * weight_kg
+        fat_g = max(fat_g, fat_floor)
+        fat_g = round(fat_g, 1)
 
-    fat_g = calories * fat_pct / 9
-    # Enforce minimum fat floor
-    fat_floor = 0.5 * weight_kg
-    fat_g = max(fat_g, fat_floor)
-    fat_g = round(fat_g, 1)
-
-    # 3. Carbs — remainder
-    pf_cal = protein_g * 4 + fat_g * 9
-    carb_cal = max(0.0, calories - pf_cal)
-    carb_g = round(carb_cal / 4, 1)
-    # Enforce minimum carb floor
-    carb_floor = 1.0 * weight_kg
-    carb_g = max(carb_g, carb_floor)
-    carb_g = round(carb_g, 1)
+        # 3. Carbs — remainder
+        pf_cal = protein_g * 4 + fat_g * 9
+        carb_cal = max(0.0, calories - pf_cal)
+        carb_g = round(carb_cal / 4, 1)
+        # Enforce minimum carb floor unless explicitly low-carb.
+        if not is_low_carb:
+            carb_floor = 1.0 * weight_kg
+            carb_g = max(carb_g, carb_floor)
+        carb_g = round(carb_g, 1)
 
     return Macros(
         calories=round(calories, 1),
@@ -493,8 +572,8 @@ def macros_for(
         fat_pct=round(fat_g * 9 / calories * 100, 1),
         rationale=(
             f"Protein: {protein_rationale}. "
-            f"Fat: ~{fat_pct*100:.0f}% of calories ({somatotype.value} adjusted). "
-            f"Carbs: remainder of calorie budget."
+            f"Fat: ~{fat_pct*100:.0f}% of calories (diet-mode aware; no somatotype tweak). "
+            f"Carbs: remainder of calorie budget unless constrained by diet mode ({dietary_pref.value})."
         ),
     )
 
@@ -502,9 +581,9 @@ def macros_for(
 # --------------------------------------------------------------------------- #
 # Hydration                                                                   #
 # --------------------------------------------------------------------------- #
-def hydration(weight_kg: float, workout_minutes: int = 0) -> Hydration:
-    """Daily water target. Base 35 ml/kg + 350 ml per 30 min workout."""
-    base = weight_kg * 35
+def hydration(weight_kg: float, workout_minutes: int = 0, sex: Optional[Sex] = None) -> Hydration:
+    """Daily water target. Base 30 ml/kg, +300 ml for men, +exercise fluid."""
+    base = weight_kg * 30 + (300 if sex == Sex.MALE else 0)
     bonus = (workout_minutes / 30.0) * 350
     return Hydration(base_ml=round(base, 0),
                      workout_bonus_ml=round(bonus, 0),
@@ -649,6 +728,7 @@ def infer_age_group(age: int) -> AgeGroup:
 def classify_trainee(
     body_fat_pct: float, experience: ExperienceLevel,
     sex: Sex, bmi_val: float,
+    diet_history_confused: bool = False,
 ) -> TraineeProfile:
     """Classify a trainee into one of the RippedBody 9 categories.
 
@@ -659,6 +739,26 @@ def classify_trainee(
     # Estimate "has significant muscle" from lean mass density
     lean_ratio = 1 - body_fat_pct / 100
     has_muscle = lean_ratio > 0.78 and bmi_val >= 22
+
+    if diet_history_confused:
+        return TraineeProfile(
+            category=TraineeCategory.PURGATORY,
+            strategy="maintenance",
+            estimated_body_fat=body_fat_pct,
+            has_significant_muscle=False,
+            summary=("Dieting/bulking history suggests 'limbo/purgatory': too "
+                     "much switching and not enough time on one plan."),
+            pitfalls=[
+                "Program hopping before trends can emerge",
+                "Changing calories based on daily scale noise",
+                "Trying to cut and bulk at the same time without a clear recomp plan",
+            ],
+            recommendations=[
+                "Choose one phase and commit for 8-12 weeks",
+                "Track weekly average weight and measurements",
+                "Do not change calories until enough trend data exists",
+            ],
+        )
 
     # Sex-adjusted body-fat thresholds
     if sex == Sex.MALE:
@@ -747,22 +847,39 @@ def classify_trainee(
             "Expect ~0.5-1% BW/month change (muscle up, fat down)",
         ]
     elif body_fat_pct >= low_bf and not has_muscle:
-        cat = TraineeCategory.SKINNY
-        strategy = "bulk"
-        summary = ("Naturally lean with little muscle. Exciting category — "
-                   "biggest visible changes are ahead with a proper bulk.")
-        pitfalls = [
-            "Not eating enough (especially if naturally skinny)",
-            "Choosing a gym without a squat rack",
-            "Not focusing on strength acquisition",
-            "Adding too much cardio",
-        ]
-        recs = [
-            "Surplus: ~2% BW/month (beginner), ~1% (intermediate)",
-            "Compound lifts 3-4×/week",
-            "Track calories — guessing leads to under-eating",
-            "Choose calorie-dense foods if appetite is low",
-        ]
+        if experience == ExperienceLevel.BEGINNER and 18.5 <= bmi_val < 25:
+            cat = TraineeCategory.NEW_TRAINEE_HEALTHY
+            strategy = "recomp"
+            summary = ("Healthy body weight and new to training. The reference "
+                       "decision tree favours recomposition while skill and "
+                       "strength are built.")
+            pitfalls = [
+                "Bulking before learning to train hard",
+                "Cutting despite being in a healthy range",
+                "Expecting the scale to move quickly during recomp",
+            ]
+            recs = [
+                "Eat near maintenance with high protein",
+                "Run a progressive beginner strength plan",
+                "Track measurements, photos, and strength, not just scale weight",
+            ]
+        else:
+            cat = TraineeCategory.SKINNY
+            strategy = "bulk"
+            summary = ("Naturally lean with little muscle. Exciting category — "
+                       "biggest visible changes are ahead with a proper bulk.")
+            pitfalls = [
+                "Not eating enough (especially if naturally skinny)",
+                "Choosing a gym without a squat rack",
+                "Not focusing on strength acquisition",
+                "Adding too much cardio",
+            ]
+            recs = [
+                "Surplus: ~2% BW/month (beginner), ~1% (intermediate)",
+                "Compound lifts 3-4×/week",
+                "Track calories — guessing leads to under-eating",
+                "Choose calorie-dense foods if appetite is low",
+            ]
     else:  # bf < low_bf → shredded or skinny depending on muscle
         if has_muscle:
             cat = TraineeCategory.SHREDDED
@@ -804,6 +921,31 @@ def classify_trainee(
         pitfalls=pitfalls,
         recommendations=recs,
     )
+
+
+def recommend_phase_strategy(
+    body_fat_pct: float, experience: ExperienceLevel, sex: Sex, bmi_val: float,
+    preference: Optional[GoalArchetype] = None,
+) -> Tuple[str, str]:
+    """Executable bulk/cut/recomp decision tree from the reference guide.
+
+    Returns ``(strategy, rationale)``. User preference is only used when the
+    person is neither over-fat, underweight/skinny, nor a beginner/returning
+    trainee who is especially well-suited to recomposition.
+    """
+    high_bf = 20 if sex == Sex.MALE else 28
+    low_bmi = 18.5
+    if body_fat_pct > high_bf:
+        return "cut", "Over the cut/bulk upper boundary; cut first while lifting."
+    if bmi_val < low_bmi or (body_fat_pct < (12 if sex == Sex.MALE else 20) and bmi_val < 22):
+        return "bulk", "Underweight/skinny profile; build muscle with a controlled surplus."
+    if experience == ExperienceLevel.BEGINNER:
+        return "recomp", "Beginner/returning healthy-range profile; recomp is realistic."
+    if preference == GoalArchetype.FAT_LOSS:
+        return "cut", "Preference-based choice: get leaner."
+    if preference in (GoalArchetype.MUSCLE_GAIN, GoalArchetype.STRENGTH):
+        return "bulk", "Preference-based choice: gain size/strength with a controlled surplus."
+    return "maintenance", "No strong phase pressure; maintain/recomp until a clear preference emerges."
 
 
 # --------------------------------------------------------------------------- #
@@ -905,8 +1047,8 @@ def muscular_potential(
     ffmi = lean_mass / (height_m * height_m)
 
     # FFMI normalized to 1.8m (for comparison)
-    # Normalized FFMI = FFMI + 6.1 × (1.8 − height_m)
-    normalized_ffmi = ffmi + 6.1 * (1.8 - height_m)
+    # Normalized FFMI = FFMI + 6.3 × (1.8 − height_m)
+    normalized_ffmi = ffmi + 6.3 * (1.8 - height_m)
 
     if normalized_ffmi < 18:
         cat = "below average"
@@ -933,6 +1075,258 @@ def muscular_potential(
             f"is ~{berkhan_max:.0f} kg. Your current FFMI is {ffmi:.1f} "
             f"({cat}). The natural ceiling is ~25 FFMI."
         ),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Anthropometric health indices                                               #
+# --------------------------------------------------------------------------- #
+@dataclass
+class AnthropometricIndices:
+    waist_to_height_ratio: Optional[float]
+    waist_to_height_category: Optional[str]
+    waist_to_hip_ratio: Optional[float]
+    waist_to_hip_category: Optional[str]
+    absi: Optional[float]
+    ideal_body_weight_kg: float
+    notes: List[str] = field(default_factory=list)
+
+
+def ideal_body_weight_devine(height_cm: float, sex: Sex) -> float:
+    """Devine ideal body weight, for clinical reference only."""
+    inches = height_cm / 2.54
+    over_60 = max(0.0, inches - 60.0)
+    base = 50.0 if sex == Sex.MALE else 45.5
+    return round(base + 2.3 * over_60, 1)
+
+
+def anthropometric_indices(
+    height_cm: float, weight_kg: float, sex: Sex,
+    waist_cm: Optional[float] = None, hip_cm: Optional[float] = None,
+) -> AnthropometricIndices:
+    """WHtR, WHR, ABSI, and Devine IBW from the reference guide."""
+    notes: List[str] = []
+    whtr = whtr_cat = whr = whr_cat = absi = None
+    height_m = height_cm / 100.0
+
+    if waist_cm is not None and height_cm > 0:
+        whtr = round(waist_cm / height_cm, 3)
+        if whtr < 0.5:
+            whtr_cat = "healthy"
+        elif whtr <= 0.6:
+            whtr_cat = "increased_risk"
+        else:
+            whtr_cat = "substantially_increased_risk"
+        notes.append("WHtR target: keep waist less than half height (<0.5).")
+
+        # ABSI = WC(m) * weight(kg)^(-2/3) * height(m)^(5/6)
+        if weight_kg > 0 and height_m > 0:
+            absi = round((waist_cm / 100.0) * (weight_kg ** (-2/3)) * (height_m ** (5/6)), 5)
+
+    if waist_cm is not None and hip_cm is not None and hip_cm > 0:
+        whr = round(waist_cm / hip_cm, 3)
+        elevated = 0.90 if sex == Sex.MALE else 0.85
+        if whr < elevated:
+            whr_cat = "healthy"
+        elif whr <= 1.0:
+            whr_cat = "elevated_risk"
+        else:
+            whr_cat = "high_risk"
+
+    return AnthropometricIndices(
+        waist_to_height_ratio=whtr,
+        waist_to_height_category=whtr_cat,
+        waist_to_hip_ratio=whr,
+        waist_to_hip_category=whr_cat,
+        absi=absi,
+        ideal_body_weight_kg=ideal_body_weight_devine(height_cm, sex),
+        notes=notes,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Macro adjustment, adaptive TDEE, and reverse dieting                         #
+# --------------------------------------------------------------------------- #
+@dataclass
+class MacroAdjustment:
+    calories_delta: float
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+    carb_delta_g: float
+    fat_delta_g: float
+    rationale: str
+
+
+def adjust_macros_for_calorie_change(
+    current: Macros, calorie_delta: float, carb_ratio: float = 0.67,
+) -> MacroAdjustment:
+    """Adjust carbs/fats while preserving protein.
+
+    ``carb_ratio`` is the share of calorie change assigned to carbs. The
+    default 0.67 approximates the guide's 2:1 carbs:fats reduction; 0.5 gives
+    a 1:1 calorie split. Outputs are rounded to practical 5 g targets.
+    """
+    carb_ratio = min(0.67, max(0.50, carb_ratio))
+    carb_kcal = calorie_delta * carb_ratio
+    fat_kcal = calorie_delta - carb_kcal
+    carb_delta_g = round((carb_kcal / 4) / 5) * 5
+    fat_delta_g = round((fat_kcal / 9) / 5) * 5
+    carbs = max(0.0, current.carbs_g + carb_delta_g)
+    fat = max(0.0, current.fat_g + fat_delta_g)
+    calories = current.protein_g * 4 + carbs * 4 + fat * 9
+    return MacroAdjustment(
+        calories_delta=calorie_delta, protein_g=current.protein_g,
+        carbs_g=round(carbs, 1), fat_g=round(fat, 1),
+        carb_delta_g=carb_delta_g, fat_delta_g=fat_delta_g,
+        rationale="Protein maintained; calorie change split across carbs and fats at a practical 1:1–2:1 calorie ratio, rounded to 5 g.",
+    )
+
+
+@dataclass
+class MacroCycle:
+    training_day: Macros
+    rest_day: Macros
+    weekly_average_calories: float
+    rationale: str
+
+
+def macro_cycle(
+    base: Macros, training_days_per_week: int, calorie_swing_pct: float = 0.10,
+) -> MacroCycle:
+    """Optional training/rest-day macro cycling for adherence.
+
+    Weekly average calories are held equal to the base plan. Training days get
+    more carbs/calories; rest days get fewer carbs/calories and protein is
+    unchanged. This is not claimed superior, only useful if it improves
+    adherence or training performance.
+    """
+    td = max(1, min(6, training_days_per_week))
+    rd = 7 - td
+    high_delta = base.calories * calorie_swing_pct
+    low_delta = -(high_delta * td / max(1, rd)) if rd else 0
+    hi_adj = adjust_macros_for_calorie_change(base, high_delta, carb_ratio=0.67)
+    lo_adj = adjust_macros_for_calorie_change(base, low_delta, carb_ratio=0.67)
+
+    def to_macros(adj: MacroAdjustment) -> Macros:
+        cal = adj.protein_g * 4 + adj.carbs_g * 4 + adj.fat_g * 9
+        return Macros(
+            calories=round(cal, 1), protein_g=adj.protein_g,
+            carbs_g=adj.carbs_g, fat_g=adj.fat_g,
+            protein_pct=round(adj.protein_g * 4 / cal * 100, 1),
+            carbs_pct=round(adj.carbs_g * 4 / cal * 100, 1),
+            fat_pct=round(adj.fat_g * 9 / cal * 100, 1),
+            rationale="Macro-cycled day: protein held constant; carbs/fats adjusted.",
+        )
+
+    weekly_avg = (to_macros(hi_adj).calories * td + to_macros(lo_adj).calories * rd) / 7
+    return MacroCycle(
+        training_day=to_macros(hi_adj), rest_day=to_macros(lo_adj),
+        weekly_average_calories=round(weekly_avg, 1),
+        rationale="Optional adherence tool; no inherent advantage over consistent daily macros.",
+    )
+
+
+@dataclass
+class DailyLog:
+    day: int
+    calories: float
+    weight_kg: float
+    complete: bool = True
+
+
+@dataclass
+class AdaptiveTDEEEstimate:
+    formula_tdee: float
+    observed_tdee: Optional[float]
+    adaptive_tdee: float
+    confidence: str
+    days_used: int
+    excluded_days: int
+    weight_change_kg: Optional[float]
+    notes: List[str] = field(default_factory=list)
+
+
+def adaptive_tdee(
+    logs: Sequence[DailyLog], formula_tdee: float, smoothing_days: int = 7,
+) -> AdaptiveTDEEEstimate:
+    """Estimate actual TDEE from intake and trend weight.
+
+    Uses complete days, removes coarse calorie outliers, compares early and late
+    rolling average weights, then blends observed TDEE with the formula estimate
+    according to data sufficiency.
+    """
+    complete = [l for l in logs if l.complete and l.calories > 800 and l.weight_kg > 0]
+    if len(complete) < 14:
+        return AdaptiveTDEEEstimate(formula_tdee, None, round(formula_tdee, 1), "low", len(complete), len(logs)-len(complete), None, ["Need at least 14 complete days; 28+ is preferable."])
+
+    cals = sorted(l.calories for l in complete)
+    median = cals[len(cals)//2]
+    filtered = [l for l in complete if 0.5 * median <= l.calories <= 1.5 * median]
+    excluded = len(logs) - len(filtered)
+    n = min(smoothing_days, len(filtered)//2)
+    start_w = sum(l.weight_kg for l in filtered[:n]) / n
+    end_w = sum(l.weight_kg for l in filtered[-n:]) / n
+    days = max(1, filtered[-1].day - filtered[0].day + 1)
+    avg_cal = sum(l.calories for l in filtered) / len(filtered)
+    delta_kg = end_w - start_w
+    # 7700 kcal/kg is acceptable for retrospective TDEE from trend data; do not
+    # use it as a promise of future timelines.
+    observed = avg_cal - (delta_kg * 7700 / days)
+    weight = min(0.8, max(0.25, len(filtered) / 42))
+    adaptive = formula_tdee * (1 - weight) + observed * weight
+    confidence = "high" if len(filtered) >= 42 else "medium" if len(filtered) >= 28 else "low"
+    return AdaptiveTDEEEstimate(
+        formula_tdee=round(formula_tdee, 1),
+        observed_tdee=round(observed, 1),
+        adaptive_tdee=round(adaptive, 1),
+        confidence=confidence,
+        days_used=len(filtered),
+        excluded_days=excluded,
+        weight_change_kg=round(delta_kg, 2),
+        notes=["Trend-based TDEE should be recalculated every 4–6 weeks and after major lifestyle changes."],
+    )
+
+
+@dataclass
+class ReverseDietStep:
+    week: int
+    calories: float
+    protein_g: float
+    instruction: str
+
+
+@dataclass
+class ReverseDietProtocol:
+    approach: str
+    weekly_increase_kcal: int
+    duration_weeks: int
+    steps: List[ReverseDietStep]
+    monitoring: List[str]
+
+
+def reverse_diet_protocol(
+    current_calories: float, estimated_maintenance: float, bodyweight_kg: float,
+    approach: str = "moderate", build_muscle: bool = False,
+) -> ReverseDietProtocol:
+    """Create a post-cut reverse diet plan (conservative/moderate/aggressive)."""
+    increments = {"conservative": 50, "moderate": 100, "aggressive": 150}
+    inc = increments.get(approach, 100)
+    gap = max(0.0, estimated_maintenance - current_calories)
+    duration = max(1, math.ceil(gap / inc))
+    protein = round(bodyweight_kg * (2.2 if build_muscle else 1.6), 1)
+    steps = []
+    for week in range(1, duration + 1):
+        cals = min(estimated_maintenance, current_calories + inc * week)
+        steps.append(ReverseDietStep(week, round(cals, 1), protein, "Hold this target for the week; react to weekly average weight, not daily noise."))
+    return ReverseDietProtocol(
+        approach=approach, weekly_increase_kcal=inc, duration_weeks=duration, steps=steps,
+        monitoring=[
+            "Track daily weight and compare weekly averages.",
+            "Some water/glycogen weight gain is normal.",
+            "If weekly average rises >0.5% body weight/week, pause or halve increases.",
+            "Maintain training intensity and protein while calories rise.",
+        ],
     )
 
 

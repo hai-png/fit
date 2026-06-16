@@ -14,8 +14,8 @@ Dimensions
 3. Experience   — beginner, intermediate, advanced
 4. Age group    — young, adult, middle
 5. Sex          — male, female
-6. Activity     — sedentary, mostly_sedentary, lightly_active, highly_active
-7. Diet         — omnivore, vegan
+6. Activity     — sedentary, mostly_sedentary, moderately/lightly/highly/very active
+7. Diet         — balanced, omnivore, vegan, vegetarian, pescatarian, keto, etc.
 8. Environment  — home_bodyweight, home_gym, gym_full
 9. Session      — express_30, short_45, standard_60, extended_90
 
@@ -74,20 +74,32 @@ class Sex(str, Enum):
 
 
 class ActivityLevel(str, Enum):
-    """Daily activity levels (RippedBody TDEE multipliers).
+    """Daily activity levels using the reference guide's multiplier bands.
 
-    These bundle NEAT + occupational activity with the assumption that the
-    client lifts weights 3–6 days per week.
+    The original four values are retained for backwards compatibility;
+    MODERATELY_ACTIVE and VERY_ACTIVE complete the five-tier guide model.
     """
-    SEDENTARY = "sedentary"             # Little/no exercise → BMR × 1.15
-    MOSTLY_SEDENTARY = "mostly_sedentary"  # Office work + lifting → × 1.35
-    LIGHTLY_ACTIVE = "lightly_active"   # Lightly active + lifting → × 1.55
-    HIGHLY_ACTIVE = "highly_active"     # Highly active + lifting → × 1.75
+    SEDENTARY = "sedentary"                  # <5k steps/day, desk job
+    MOSTLY_SEDENTARY = "mostly_sedentary"    # <5k steps + lifting
+    LIGHTLY_ACTIVE = "lightly_active"        # 5-10k steps + training, low end
+    MODERATELY_ACTIVE = "moderately_active"  # 5-10k steps + training, midpoint
+    HIGHLY_ACTIVE = "highly_active"          # 10k+ steps + training
+    VERY_ACTIVE = "very_active"              # Physical job + training
 
 
 class DietaryPreference(str, Enum):
+    BALANCED = "balanced"
     OMNIVORE = "omnivore"
     VEGAN = "vegan"
+    VEGETARIAN = "vegetarian"
+    PESCATARIAN = "pescatarian"
+    POLLO_PESCATARIAN = "pollo_pescatarian"
+    KETO = "keto"
+    LOW_CARB = "low_carb"
+    MEDITERRANEAN = "mediterranean"
+    PALEO = "paleo"
+    GLUTEN_FREE = "gluten_free"
+    HIGH_PROTEIN = "high_protein"
 
 
 class TrainingEnvironment(str, Enum):

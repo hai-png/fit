@@ -24,6 +24,8 @@ from .archetypes import (
 from .calculators import (
     BodyComposition, CardioZones, EnergyExpenditure, Hydration, Macros,
     StrengthEstimate, MicronutrientTargets, MuscularPotential,
+    AnthropometricIndices, MacroAdjustment, DailyLog, AdaptiveTDEEEstimate,
+    ReverseDietStep, ReverseDietProtocol,
     body_composition, body_fat_navy, body_fat_bmi_method,
     body_fat_from_visual, visual_bf_description, VISUAL_BF_BANDS,
     correct_bf_estimate,
@@ -31,8 +33,11 @@ from .calculators import (
     tdee, calorie_target, energy_expenditure, hydration,
     macros_for, cardio_zones, one_rep_max, weekly_tonnage,
     micronutrient_targets, muscular_potential,
-    infer_age_group, infer_somatotype, classify_trainee,
+    anthropometric_indices, ideal_body_weight_devine,
+    adjust_macros_for_calorie_change, adaptive_tdee, reverse_diet_protocol,
+    infer_age_group, infer_somatotype, classify_trainee, recommend_phase_strategy,
     ACTIVITY_MULTIPLIERS, BULK_MONTHLY_RATE, FAT_LOSS_WEEKLY_RATE,
+    fat_loss_rate_for_bodyfat, macro_cycle, MacroCycle,
     MAX_1RM_REPS,
 )
 from .adjustments import (
@@ -50,6 +55,11 @@ from .decision_trees import (
     training_split, weekly_volume, periodisation,
 )
 from .meal_plans import MealItem, MealPlan, MEAL_LIBRARY, assemble_day, assemble_week
+from .seven_day_meal_planner import (
+    DayPlanQuality, MealAlternativeSet, SevenDayMealPlan, load_external_recipe_meals, recipe_pool,
+    assemble_7_day_meal_plan,
+)
+from .meal_plan_auditor import MealPlanAudit, audit_7_day_meal_plan
 from .exercise_plans import (
     EXERCISE_LIBRARY, Exercise, weekly_split, build_session,
     ENVIRONMENT_EQUIPMENT,
@@ -57,6 +67,11 @@ from .exercise_plans import (
 from .questionnaires import (
     DIETARY, FITNESS_HISTORY, GOALS, FULL_INTAKE,
     intake_report, IntakeReport,
+)
+from .protocols import (
+    ExercisePlanProtocol, MealPlanProtocol, CompleteProfileProtocol,
+    build_exercise_plan_protocol, build_meal_plan_protocol,
+    build_complete_profile_protocol,
 )
 from .recommender import (
     ClientProfile, PlanRecommendation, TrainingPlan, NutritionPlan,
@@ -74,6 +89,8 @@ __all__ = [
     # calculators
     "BodyComposition", "CardioZones", "EnergyExpenditure", "Hydration",
     "Macros", "StrengthEstimate", "MicronutrientTargets", "MuscularPotential",
+    "AnthropometricIndices", "MacroAdjustment", "DailyLog",
+    "AdaptiveTDEEEstimate", "ReverseDietStep", "ReverseDietProtocol",
     "body_composition", "body_fat_navy", "body_fat_bmi_method",
     "body_fat_from_visual", "visual_bf_description", "VISUAL_BF_BANDS",
     "correct_bf_estimate",
@@ -81,8 +98,12 @@ __all__ = [
     "tdee", "calorie_target", "energy_expenditure", "hydration", "macros_for",
     "cardio_zones", "one_rep_max", "weekly_tonnage",
     "micronutrient_targets", "muscular_potential",
+    "anthropometric_indices", "ideal_body_weight_devine",
+    "adjust_macros_for_calorie_change", "adaptive_tdee", "reverse_diet_protocol",
     "infer_age_group", "infer_somatotype", "classify_trainee",
+    "recommend_phase_strategy",
     "ACTIVITY_MULTIPLIERS", "BULK_MONTHLY_RATE", "FAT_LOSS_WEEKLY_RATE",
+    "fat_loss_rate_for_bodyfat", "macro_cycle", "MacroCycle",
     "MAX_1RM_REPS",
     # adjustments
     "CUT_BULK_BOUNDARIES", "PROGRESS_RATES",
@@ -98,15 +119,22 @@ __all__ = [
     "training_split", "weekly_volume", "periodisation",
     # meal plans
     "MealItem", "MealPlan", "MEAL_LIBRARY", "assemble_day", "assemble_week",
+    "DayPlanQuality", "MealAlternativeSet", "SevenDayMealPlan", "load_external_recipe_meals",
+    "recipe_pool", "assemble_7_day_meal_plan",
+    "MealPlanAudit", "audit_7_day_meal_plan",
     # exercise plans
     "EXERCISE_LIBRARY", "Exercise", "weekly_split", "build_session",
     "ENVIRONMENT_EQUIPMENT",
     # questionnaires
     "DIETARY", "FITNESS_HISTORY", "GOALS", "FULL_INTAKE",
     "intake_report", "IntakeReport",
+    # protocols
+    "ExercisePlanProtocol", "MealPlanProtocol", "CompleteProfileProtocol",
+    "build_exercise_plan_protocol", "build_meal_plan_protocol",
+    "build_complete_profile_protocol",
     # main
     "ClientProfile", "PlanRecommendation", "TrainingPlan", "NutritionPlan",
     "Recommender",
 ]
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"

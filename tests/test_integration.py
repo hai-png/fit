@@ -11,6 +11,8 @@ from fitness_engine import (
     ActivityLevel, ClientProfile, DietaryPreference, ExperienceLevel,
     GoalArchetype, Recommender, SessionLength, Sex, TrainingEnvironment,
     all_curated, total_combinations, iter_signatures,
+    build_complete_profile_protocol, macros_for, Somatotype,
+    assemble_7_day_meal_plan, audit_7_day_meal_plan,
 )
 
 
@@ -162,6 +164,51 @@ class ProfileRoundTrip(unittest.TestCase):
         rec2 = Recommender(p2).recommend()
         self.assertEqual(rec1.archetype_signature, rec2.archetype_signature)
         self.assertEqual(rec1.energy.calorie_target, rec2.energy.calorie_target)
+
+
+class ProtocolCoverage(unittest.TestCase):
+    def test_protocol_builder_covers_every_signature(self):
+        from fitness_engine import DietaryPreference
+        dummy_macros = macros_for(2400, 80, 64, GoalArchetype.RECOMPOSITION,
+                                  Sex.MALE, Somatotype.MESOMORPH,
+                                  DietaryPreference.OMNIVORE, body_fat_pct=20)
+        count = 0
+        for sig in iter_signatures():
+            proto = build_complete_profile_protocol(
+                sig.goal, sig.experience, 4, sig.session, sig.environment,
+                sig.diet, 2400, dummy_macros, 4, sig.activity,
+                age=35, sex=sig.sex,
+            )
+            self.assertTrue(proto.exercise.days)
+            self.assertTrue(proto.exercise.movement_pattern_priority)
+            self.assertTrue(proto.meal.macro_protocol)
+            self.assertTrue(proto.conflict_resolution)
+            count += 1
+        self.assertEqual(count, total_combinations())
+
+    def test_all_diet_modes_can_assemble_day(self):
+        from fitness_engine.meal_plans import assemble_day
+        for diet in DietaryPreference:
+            with self.subTest(diet=diet.value):
+                plan = assemble_day("american", diet, 2200, meals_per_day=4)
+                self.assertGreater(len(plan.meals), 0)
+                actual = sum(m.calories for m in plan.meals)
+                self.assertLess(abs(actual - 2200) / 2200, 0.05)
+
+    def test_7_day_protocol_meal_plan(self):
+        target = macros_for(2200, 80, 64, GoalArchetype.RECOMPOSITION,
+                            Sex.MALE, Somatotype.MESOMORPH,
+                            DietaryPreference.OMNIVORE, body_fat_pct=20)
+        week = assemble_7_day_meal_plan(DietaryPreference.OMNIVORE, 2200, target,
+                                        meals_per_day=4, include_external=True)
+        self.assertEqual(len(week.days), 7)
+        self.assertGreater(len(week.shopping_list), 0)
+        for day in week.days:
+            actual = sum(m.calories for m in day.meals)
+            self.assertLess(abs(actual - 2200) / 2200, 0.05)
+        self.assertTrue(any(k in week.source_summary for k in ("muscleandstrength", "trifecta")))
+        audit = audit_7_day_meal_plan(week)
+        self.assertGreaterEqual(audit.score, 80)
 
 
 class ArchetypeCardinality(unittest.TestCase):

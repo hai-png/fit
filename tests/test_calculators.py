@@ -16,6 +16,8 @@ from fitness_engine import (
     tdee, calorie_target, energy_expenditure,
     one_rep_max, cardio_zones, hydration, macros_for,
     micronutrient_targets, muscular_potential,
+    anthropometric_indices, adjust_macros_for_calorie_change,
+    adaptive_tdee, DailyLog, reverse_diet_protocol,
     infer_age_group, infer_somatotype, classify_trainee,
     weekly_tonnage, MAX_1RM_REPS,
 )
@@ -59,10 +61,10 @@ class TestBMR(unittest.TestCase):
 
 class TestTDEE(unittest.TestCase):
     def test_sedentary(self):
-        self.assertAlmostEqual(tdee(1500, ActivityLevel.SEDENTARY), 1725.0)
+        self.assertAlmostEqual(tdee(1500, ActivityLevel.SEDENTARY), 1875.0)
 
     def test_highly_active(self):
-        self.assertEqual(tdee(1500, ActivityLevel.HIGHLY_ACTIVE), 2625.0)
+        self.assertEqual(tdee(1500, ActivityLevel.HIGHLY_ACTIVE), 2700.0)
 
 
 class TestCalorieTarget(unittest.TestCase):
@@ -134,6 +136,19 @@ class TestMacros(unittest.TestCase):
                        body_fat_pct=25)
         self.assertGreaterEqual(m.fat_g, 90 * 0.5)
 
+    def test_keto_caps_carbs(self):
+        m = macros_for(2200, 80, 64, GoalArchetype.FAT_LOSS, Sex.MALE,
+                       Somatotype.MESOMORPH, DietaryPreference.KETO,
+                       body_fat_pct=20)
+        self.assertLessEqual(m.carbs_g, 50)
+        self.assertGreater(m.fat_pct, 50)
+
+    def test_mediterranean_higher_fat_preset(self):
+        m = macros_for(2400, 80, 64, GoalArchetype.GENERAL_HEALTH, Sex.MALE,
+                       Somatotype.MESOMORPH, DietaryPreference.MEDITERRANEAN,
+                       body_fat_pct=20)
+        self.assertAlmostEqual(m.fat_pct, 35, delta=2)
+
 
 class TestOneRepMax(unittest.TestCase):
     def test_epley(self):
@@ -169,7 +184,7 @@ class TestCardioZones(unittest.TestCase):
 
 class TestHydration(unittest.TestCase):
     def test_base(self):
-        self.assertEqual(hydration(80, 0).base_ml, 2800.0)
+        self.assertEqual(hydration(80, 0).base_ml, 2400.0)
 
     def test_workout_bonus(self):
         self.assertEqual(hydration(80, 60).workout_bonus_ml, 700.0)
@@ -178,8 +193,8 @@ class TestHydration(unittest.TestCase):
 class TestVisualBodyFat(unittest.TestCase):
     def test_visual_label(self):
         self.assertEqual(body_fat_from_visual("shredded"), 8.0)
-        self.assertEqual(body_fat_from_visual("average_fit"), 17.5)
-        self.assertEqual(body_fat_from_visual("obese"), 33.0)
+        self.assertEqual(body_fat_from_visual("average_fit"), 16.0)
+        self.assertEqual(body_fat_from_visual("obese"), 30.0)
 
     def test_invalid_label(self):
         with self.assertRaises(ValueError):
@@ -188,7 +203,7 @@ class TestVisualBodyFat(unittest.TestCase):
     def test_body_composition_uses_visual(self):
         bc = body_composition(80, 178, 30, Sex.MALE, visual_bf_label="lean")
         self.assertEqual(bc.estimation_method, "visual")
-        self.assertEqual(bc.body_fat_pct, 14.0)
+        self.assertEqual(bc.body_fat_pct, 13.0)
 
     def test_body_composition_priority(self):
         """User-supplied BF% takes priority over visual."""
@@ -241,6 +256,17 @@ class TestClassifyTrainee(unittest.TestCase):
     def test_shredded(self):
         t = classify_trainee(9, ExperienceLevel.ADVANCED, Sex.MALE, 25)
         self.assertEqual(t.category.value, "shredded")
+
+    def test_new_trainee_healthy(self):
+        t = classify_trainee(12, ExperienceLevel.BEGINNER, Sex.MALE, 21)
+        self.assertEqual(t.category.value, "new_trainee_healthy")
+        self.assertEqual(t.strategy, "recomp")
+
+    def test_purgatory_flag(self):
+        t = classify_trainee(18, ExperienceLevel.INTERMEDIATE, Sex.MALE, 24,
+                             diet_history_confused=True)
+        self.assertEqual(t.category.value, "purgatory")
+        self.assertEqual(t.strategy, "maintenance")
 
 
 class TestWeeklyTonnage(unittest.TestCase):
@@ -334,6 +360,57 @@ class TestVeganProtein(unittest.TestCase):
                          Somatotype.MESOMORPH, DietaryPreference.OMNIVORE,
                          body_fat_pct=None)
         self.assertGreater(m_v.protein_g, m_o.protein_g)
+
+
+class TestReferenceGuideAdditions(unittest.TestCase):
+    def test_mifflin_default_energy(self):
+        ee = energy_expenditure(80, 180, 30, Sex.MALE,
+                                ActivityLevel.SEDENTARY,
+                                GoalArchetype.GENERAL_HEALTH,
+                                ExperienceLevel.INTERMEDIATE)
+        self.assertEqual(ee.bmr, round(bmr_mifflin(80, 180, 30, Sex.MALE), 1))
+        self.assertEqual(ee.activity_multiplier, 1.25)
+
+    def test_male_calorie_floor(self):
+        target, bd = calorie_target(1000, GoalArchetype.FAT_LOSS, 80,
+                                    ExperienceLevel.INTERMEDIATE, sex=Sex.MALE)
+        self.assertEqual(target, 1500)
+        self.assertIn("warning", bd)
+
+    def test_alpert_safeguard(self):
+        target, bd = calorie_target(2500, GoalArchetype.FAT_LOSS, 70,
+                                    ExperienceLevel.INTERMEDIATE, sex=Sex.MALE,
+                                    body_fat_pct=8)
+        self.assertIn("alpert_max_daily_deficit", bd)
+        self.assertLessEqual(bd["daily_deficit"], bd["alpert_max_daily_deficit"])
+        self.assertGreater(target, 1800)
+
+    def test_anthropometric_indices(self):
+        idx = anthropometric_indices(180, 80, Sex.MALE, waist_cm=85, hip_cm=100)
+        self.assertEqual(idx.waist_to_height_category, "healthy")
+        self.assertEqual(idx.waist_to_hip_category, "healthy")
+        self.assertIsNotNone(idx.absi)
+
+    def test_macro_adjustment_preserves_protein(self):
+        m = macros_for(2200, 80, 64, GoalArchetype.FAT_LOSS, Sex.MALE,
+                       Somatotype.MESOMORPH, DietaryPreference.OMNIVORE,
+                       body_fat_pct=20)
+        adj = adjust_macros_for_calorie_change(m, -200)
+        self.assertEqual(adj.protein_g, m.protein_g)
+        self.assertLess(adj.carbs_g, m.carbs_g)
+
+    def test_adaptive_tdee(self):
+        logs = [DailyLog(day=i+1, calories=2200, weight_kg=80 - i*0.03) for i in range(28)]
+        est = adaptive_tdee(logs, formula_tdee=2500)
+        self.assertIn(est.confidence, {"medium", "low"})
+        self.assertIsNotNone(est.observed_tdee)
+        self.assertGreater(est.adaptive_tdee, 2200)
+
+    def test_reverse_diet(self):
+        proto = reverse_diet_protocol(1800, 2400, 80, approach="moderate")
+        self.assertEqual(proto.weekly_increase_kcal, 100)
+        self.assertEqual(proto.duration_weeks, 6)
+        self.assertEqual(proto.steps[-1].calories, 2400)
 
 
 class TestEndToEnd(unittest.TestCase):

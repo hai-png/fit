@@ -481,9 +481,81 @@ MEAL_LIBRARY: List[MealItem] = [
         name="Steak + buttered asparagus",
         cuisine="american", slot="dinner",
         calories=620, protein_g=42, carbs_g=10, fat_g=42, fibre_g=5,
-        tags=["keto", "omnivore"],
+        tags=["keto", "low_carb", "gluten_free", "paleo", "omnivore", "high_protein"],
         ingredients=["160g steak", "asparagus", "butter"],
         recipe="Pan-sear steak; sauté asparagus in butter.",
+    ),
+    MealItem(
+        name="Chicken Caesar salad bowl",
+        cuisine="american", slot="lunch",
+        calories=520, protein_g=44, carbs_g=14, fat_g=30, fibre_g=6,
+        tags=["keto", "low_carb", "gluten_free", "omnivore", "high_protein"],
+        ingredients=["170g chicken breast", "romaine", "parmesan", "olive oil dressing"],
+        recipe="Grill chicken, toss with romaine, parmesan, and dressing.",
+    ),
+    MealItem(
+        name="Turkey lettuce wraps",
+        cuisine="american", slot="lunch",
+        calories=460, protein_g=40, carbs_g=18, fat_g=24, fibre_g=7,
+        tags=["low_carb", "gluten_free", "paleo", "omnivore", "high_protein"],
+        ingredients=["150g turkey", "lettuce cups", "avocado", "tomato salsa"],
+        recipe="Fill lettuce cups with turkey, avocado, and salsa.",
+    ),
+    MealItem(
+        name="Keto tuna cucumber boats",
+        cuisine="mediterranean", slot="snack",
+        calories=260, protein_g=28, carbs_g=6, fat_g=14, fibre_g=2,
+        tags=["keto", "low_carb", "gluten_free", "pescatarian", "high_protein"],
+        ingredients=["120g tuna", "cucumber", "olive-oil mayo", "lemon"],
+        recipe="Mix tuna, spoon into cucumber boats, finish with lemon.",
+    ),
+    MealItem(
+        name="Protein oats with whey",
+        cuisine="american", slot="breakfast",
+        calories=500, protein_g=42, carbs_g=58, fat_g=10, fibre_g=9,
+        tags=["balanced", "vegetarian", "high_protein"],
+        ingredients=["70g oats", "30g whey", "berries", "milk"],
+        recipe="Cook oats, stir in whey off heat, top with berries.",
+    ),
+    MealItem(
+        name="Gluten-free chicken rice bowl",
+        cuisine="asian", slot="lunch",
+        calories=590, protein_g=44, carbs_g=70, fat_g=12, fibre_g=6,
+        tags=["balanced", "gluten_free", "omnivore", "high_protein"],
+        ingredients=["160g chicken", "rice", "mixed vegetables", "tamari"],
+        recipe="Cook rice, grill chicken, assemble with vegetables and tamari.",
+    ),
+    MealItem(
+        name="Paleo eggs, sweet potato and greens",
+        cuisine="american", slot="breakfast",
+        calories=480, protein_g=24, carbs_g=42, fat_g=22, fibre_g=8,
+        tags=["paleo", "gluten_free", "vegetarian"],
+        ingredients=["3 eggs", "sweet potato", "spinach", "olive oil"],
+        recipe="Roast sweet potato, scramble eggs with spinach.",
+    ),
+    MealItem(
+        name="Paleo chicken, squash and salad",
+        cuisine="american", slot="dinner",
+        calories=650, protein_g=46, carbs_g=50, fat_g=26, fibre_g=10,
+        tags=["paleo", "gluten_free", "omnivore", "high_protein"],
+        ingredients=["180g chicken", "butternut squash", "mixed salad", "olive oil"],
+        recipe="Roast squash and chicken; serve with olive-oil salad.",
+    ),
+    MealItem(
+        name="Vegetarian lentil bolognese with gluten-free pasta",
+        cuisine="mediterranean", slot="dinner",
+        calories=620, protein_g=28, carbs_g=82, fat_g=16, fibre_g=16,
+        tags=["balanced", "vegetarian", "vegan", "gluten_free", "mediterranean"],
+        ingredients=["lentils", "gluten-free pasta", "tomato", "vegetables"],
+        recipe="Simmer lentil tomato sauce; serve over gluten-free pasta.",
+    ),
+    MealItem(
+        name="Mediterranean high-protein mezze plate",
+        cuisine="mediterranean", slot="lunch",
+        calories=570, protein_g=38, carbs_g=52, fat_g=22, fibre_g=11,
+        tags=["mediterranean", "vegetarian", "pescatarian", "high_protein"],
+        ingredients=["Greek yogurt tzatziki", "chickpeas", "feta", "pita", "salad"],
+        recipe="Assemble mezze plate with salad, chickpeas, feta, and tzatziki.",
     ),
 ]
 
@@ -503,15 +575,28 @@ def by_slot(slot: str) -> List[MealItem]:
     return [m for m in MEAL_LIBRARY if m.slot == slot]
 
 
-# Dietary compatibility matrix — simplified to omnivore and vegan only.
+# Dietary compatibility matrix. Diet modes are filters/presets, not claims that
+# any preset is inherently superior when calories and protein are equated.
 DIET_COMPATIBILITY = {
+    DietaryPreference.BALANCED: {
+        "balanced", "omnivore", "pollo_pescatarian", "pescatarian",
+        "vegetarian", "vegan", "mediterranean", "high_protein",
+    },
     DietaryPreference.OMNIVORE: {
-        "omnivore", "pollo_pescatarian", "pescatarian",
-        "vegetarian", "vegan",
+        "balanced", "omnivore", "pollo_pescatarian", "pescatarian",
+        "vegetarian", "vegan", "mediterranean", "high_protein",
+        "gluten_free", "low_carb", "paleo", "keto",
     },
-    DietaryPreference.VEGAN: {
-        "vegan",
-    },
+    DietaryPreference.VEGAN: {"vegan"},
+    DietaryPreference.VEGETARIAN: {"vegetarian", "vegan"},
+    DietaryPreference.PESCATARIAN: {"pescatarian", "vegetarian", "vegan"},
+    DietaryPreference.POLLO_PESCATARIAN: {"pollo_pescatarian", "pescatarian", "vegetarian", "vegan"},
+    DietaryPreference.KETO: {"keto"},
+    DietaryPreference.LOW_CARB: {"low_carb", "keto"},
+    DietaryPreference.MEDITERRANEAN: {"mediterranean", "pescatarian", "vegetarian", "vegan"},
+    DietaryPreference.PALEO: {"paleo"},
+    DietaryPreference.GLUTEN_FREE: {"gluten_free", "keto", "low_carb", "paleo"},
+    DietaryPreference.HIGH_PROTEIN: {"high_protein", "omnivore", "pescatarian", "pollo_pescatarian"},
 }
 
 
@@ -519,9 +604,8 @@ def filter_compatible(diet: DietaryPreference,
                       allergens: List[str]) -> List[MealItem]:
     """Filter meals compatible with a given dietary pattern + allergens.
 
-    Mediterranean diet is implemented as a pattern (any meal that's
-    reasonably Mediterranean — includes most omnivore / pescatarian /
-    vegetarian options). The cuisine filter is applied separately.
+    Diet modes are implemented as tag-compatibility filters; cuisine is applied
+    separately and falls back to any compatible cuisine if necessary.
     """
     acceptable = DIET_COMPATIBILITY.get(diet, set())
     out = []

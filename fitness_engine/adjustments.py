@@ -305,6 +305,8 @@ class ProgressTrackingGuide:
     """
     weight_tracking: List[str] = field(default_factory=list)
     measurement_tracking: List[str] = field(default_factory=list)
+    photo_tracking: List[str] = field(default_factory=list)
+    strength_tracking: List[str] = field(default_factory=list)
     what_to_expect: List[str] = field(default_factory=list)
 
 
@@ -318,11 +320,22 @@ def progress_tracking_guide() -> ProgressTrackingGuide:
             "(water and glycogen shifts dominate).",
         ],
         measurement_tracking=[
-            "Measure your waist at the navel, and 3 finger-widths above and "
-            "below, once per week.",
-            "Use a non-stretch tape measure. Measure at the same time of day "
-            "(morning is best).",
-            "Measurements confirm that fat (not muscle) is being lost during cuts.",
+            "Measure 9 points weekly: chest at nipple line; left/right upper arm; "
+            "left/right thigh; stomach at navel, 3 finger-widths above, and "
+            "3 finger-widths below.",
+            "Use a non-stretch or auto-tightening tape measure. Measure at the "
+            "same time of day (morning is best).",
+            "Measurements confirm whether the intended tissue is changing, "
+            "especially during recomp when scale weight may be stable.",
+        ],
+        photo_tracking=[
+            "Take monthly progress photos in the same lighting, distance, poses, "
+            "and time of day.",
+            "Use photos as a recomp indicator, not day-to-day mirror checks.",
+        ],
+        strength_tracking=[
+            "Log exercises, sets, reps, load, and RIR/RPE for progressive overload.",
+            "Assess strength trends over weeks; short-term dips are common during cuts.",
         ],
         what_to_expect=[
             "Weight loss is rarely linear — expect stalls and 'whooshes'.",

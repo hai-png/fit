@@ -21,7 +21,8 @@ from .calculators import (
     MicronutrientTargets, MuscularPotential,
     body_composition, energy_expenditure, hydration,
     macros_for, cardio_zones, infer_age_group, infer_somatotype,
-    classify_trainee, micronutrient_targets, muscular_potential,
+    classify_trainee, recommend_phase_strategy, micronutrient_targets,
+    muscular_potential,
 )
 from .decision_trees import (
     IntensityScheme, Periodisation, ProgressionRule, SessionDensity,
@@ -30,8 +31,10 @@ from .decision_trees import (
     training_split, weekly_volume, periodisation,
 )
 from .meal_plans import MealPlan, assemble_day
+from .seven_day_meal_planner import SevenDayMealPlan, assemble_7_day_meal_plan
 from .exercise_plans import weekly_split
 from .questionnaires import IntakeReport, intake_report
+from .protocols import CompleteProfileProtocol, build_complete_profile_protocol
 
 
 # --------------------------------------------------------------------------- #
@@ -138,6 +141,7 @@ class NutritionPlan:
     hydration: Hydration
     micronutrients: MicronutrientTargets
     meal_plan: MealPlan
+    weekly_meal_plan: SevenDayMealPlan
     cuisine: List[str]
     supplements: dict
 
@@ -152,6 +156,7 @@ class PlanRecommendation:
     training: TrainingPlan
     nutrition: NutritionPlan
     muscular_potential: Optional[MuscularPotential]
+    protocols: CompleteProfileProtocol
     intake_report: IntakeReport
     warnings: List[str]
     notes: List[str]
@@ -221,7 +226,7 @@ class Recommender:
         )
 
         # 6. Hydration
-        h = hydration(p.weight_kg, workout_minutes=45 * p.days_per_week)
+        h = hydration(p.weight_kg, workout_minutes=45 * p.days_per_week, sex=p.sex)
 
         # 6b. Micronutrients (fruit/veg/fibre targets)
         micros = micronutrient_targets(ee.calorie_target)
@@ -272,15 +277,20 @@ class Recommender:
         # 9. Decision trees (nutrition)
         cuisines = cuisine_pick(p.preferred_cuisines)
 
-        # 10. Meal plan assembly
-        primary_cuisine = cuisines[0] if cuisines else "american"
-        day_plan = assemble_day(
-            cuisine=primary_cuisine,
+        # 10. 7-day external-recipe protocol meal plan
+        week_plan = assemble_7_day_meal_plan(
             diet=p.dietary_preference,
             target_calories=ee.calorie_target,
+            target_macros=m,
             meals_per_day=p.meals_per_day,
             allergens=p.allergies,
+            preferred_cuisines=cuisines,
+            include_external=True,
+            include_internal=False,
         )
+        # Single-day plan is the first day of the same external-only weekly plan,
+        # kept for backwards compatibility with callers expecting nutrition.meal_plan.
+        day_plan = week_plan.days[0]
 
         # 11. Supplements
         supps = supplement_stack(p.primary_goal, p.dietary_preference)
@@ -294,15 +304,42 @@ class Recommender:
             trainee_recommendations=trainee.recommendations,
         )
 
-        # 13. Signature
+        # 13. Protocol blueprints for this profile
+        protocols = build_complete_profile_protocol(
+            p.primary_goal, p.experience, p.days_per_week, p.session_length,
+            p.environment, p.dietary_preference, ee.calorie_target, m,
+            p.meals_per_day, p.activity, age=p.age, sex=p.sex,
+        )
+
+        # 14. Signature
         sig = self._archetype_signature(somatotype)
 
-        # 14. Cardio prescription
+        # 15. Cardio prescription
         cardio_rx = self._cardio_prescription(p.primary_goal, p.days_per_week)
 
         # 15. Warnings and notes
         warnings = list(ir.warnings)
         notes = list(ir.notes)
+        tree_strategy, tree_reason = recommend_phase_strategy(
+            bc.body_fat_pct or 20, p.experience, p.sex, bc.bmi, p.primary_goal,
+        )
+        goal_strategy = {
+            GoalArchetype.FAT_LOSS: "cut",
+            GoalArchetype.MUSCLE_GAIN: "bulk",
+            GoalArchetype.RECOMPOSITION: "recomp",
+            GoalArchetype.GENERAL_HEALTH: "maintenance",
+        }.get(p.primary_goal)
+        if goal_strategy and tree_strategy != goal_strategy:
+            notes.append(
+                f"Reference-guide phase decision tree suggests '{tree_strategy}' "
+                f"({tree_reason}), while the selected goal implies '{goal_strategy}'. "
+                f"The plan follows the selected goal but this mismatch should be reviewed."
+            )
+        if ee.calorie_target_breakdown.get("alpert_safeguard_applied"):
+            warnings.append(
+                "Fat-loss deficit was capped by Alpert's maximum fat-loss rate "
+                "to reduce unnecessary lean-mass-loss risk."
+            )
 
         return PlanRecommendation(
             profile=p.to_dict(),
@@ -334,6 +371,7 @@ class Recommender:
                 hydration=h,
                 micronutrients=micros,
                 meal_plan=day_plan,
+                weekly_meal_plan=week_plan,
                 cuisine=cuisines,
                 supplements={
                     "foundational": supps.foundational,
@@ -342,6 +380,7 @@ class Recommender:
                 },
             ),
             muscular_potential=mp,
+            protocols=protocols,
             intake_report=ir,
             warnings=warnings,
             notes=notes,
@@ -353,13 +392,17 @@ class Recommender:
         # RippedBody stance: cardio is supplementary, not the main driver.
         # Diet drives the deficit; training drives muscle.
         if goal == GoalArchetype.FAT_LOSS:
-            weekly_min = max(60, 30 * days_per_week)
+            lifting_minutes = 45 * days_per_week
+            cardio_cap = max(30, int(lifting_minutes * 0.5))
+            recommended = min(max(45, 20 * days_per_week), cardio_cap)
             return {
-                "weekly_cardio_minutes": str(weekly_min),
+                "weekly_cardio_minutes": str(recommended),
+                "weekly_cardio_cap_minutes": str(cardio_cap),
                 "modality": "Zone-2 walking or easy cycling",
-                "guidance": "Keep cardio supplementary. Diet drives the "
-                            "deficit; resistance training preserves muscle. "
-                            "Add cardio only if fat-loss rate is too slow.",
+                "guidance": "Keep cardio supplementary and below half of weekly "
+                            "lifting time. Diet drives the deficit; resistance "
+                            "training preserves muscle. Add cardio only if "
+                            "fat-loss rate is too slow.",
                 "step_target": "8,000-10,000 steps/day outside sessions",
             }
         if goal == GoalArchetype.GENERAL_HEALTH:

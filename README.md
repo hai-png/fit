@@ -1,82 +1,85 @@
-# Fitness Engine v2.0 — Personalised Exercise & Meal Plan Generator
+# Fitness Engine v2.1 — Evidence-Based Training & Meal Plan Generator
 
-A streamlined, evidence-based engine grounded in the **RippedBody**
-methodology and the **Muscle & Strength** body-type framework. It takes
-a simple client profile and produces a fully-customised **training
-program**, **nutrition plan**, and **coaching notes**.
+A deterministic Python engine that turns a client profile into a traceable training plan, nutrition target, weekly external-recipe meal plan, and coaching notes.
 
-> Goal: turn a 90-second intake into a defensible, executable, and
-> traceable plan grounded in real coaching methodology.
+The engine is grounded in the RippedBody / Muscle & Strength Pyramid approach, with additional safeguards and app-level protocols from the project reference guide.
 
 ---
 
-## What changed in v2.0
+## Current capabilities
 
-This is a ground-up redesign based on the RippedBody and M&S sources:
+- **Training plans** by goal, experience, days/week, session length, and available equipment.
+- **Nutrition calculations** using Mifflin-St Jeor by default, guide-aligned activity multipliers, body-fat-aware cut rates, Alpert deficit capping, sex-specific calorie floors, and experience-tiered bulking rates.
+- **Macro targets** that set protein first, preserve fat floors, use carbs as the remainder, and support diet-mode constraints such as keto, low-carb, Mediterranean, paleo, and high-protein.
+- **Body composition tools** including BMI, Navy body-fat estimate, visual body-fat bands, FFMI, WHtR, WHR, ABSI, and Devine IBW.
+- **7-day external-recipe meal planner** using a clean unified recipe database with alternatives for every meal.
+- **Recipe quality audit** for calories, protein, fiber, diet compatibility, source confidence, slot sanity, variety, and portion scaling.
+- **Protocol layer** that explains how each exercise and meal plan was built.
+- **Common profile meal plans** generated under `output/common_meal_plans/`.
 
-| Aspect | v1.0 | v2.0 |
+---
+
+## v2.1 changes
+
+| Area | v2.0 | v2.1 |
 |---|---|---|
-| **Goals** | 8 (incl. endurance, athletic, rehab) | **5** — fat_loss, muscle_gain, recomp, strength, general_health |
-| **Somatotype** | 4 (incl. mixed) | **3** — ectomorph, mesomorph, endomorph (M&S framework) |
-| **Experience** | 5 tiers | **3** — beginner, intermediate, advanced |
-| **Age groups** | 6 | **3** — young (18-30), adult (31-45), middle (46+) |
-| **Activity** | 5 levels | **4** — RippedBody TDEE multipliers |
-| **Diet** | 11 options | **2** — omnivore, vegan |
-| **Environment** | 7 | **3** — home_bodyweight, home_gym, gym_full |
-| **Calorie method** | Flat % of TDEE | **RippedBody**: 0.75%/wk cut, experience-tiered bulk |
-| **Macro method** | g/kg fixed | **RippedBody**: protein by lean mass, fat 15-30%, carbs remainder |
-| **Body fat** | Navy + Deurenberg | + **Visual estimation** (rippedbody.com/body-fat-guide) |
-| **Questionnaires** | 6 forms incl. PAR-Q | **3 lean forms** + auto-generated health recommendations |
-| **Trainee profiling** | None | **9 RippedBody categories** with strategy + pitfalls |
-| **Decision trees** | Generic | **RippedBody Training Pyramid** (adherence → VIF → progression) |
+| BMR default | Harris-Benedict | Mifflin-St Jeor |
+| Activity levels | 4 | 6 guide-compatible levels |
+| Diet modes | 2 | 12 diet modes |
+| Recipe source | curated internal meals | 323 clean standardized external recipes + legacy internal library |
+| Weekly planner | day plan only | 7-day external-recipe planner with alternatives |
+| Recipe QA | basic filtering | unified schema, sanitization, macro/fiber quality checks |
+| Adaptive features | limited | adaptive TDEE helper, reverse diet helper, macro adjustment/cycling |
+| Protocol output | implicit | explicit `rec.protocols` and weekly meal protocol notes |
+| Archetype space | 25,920 | 233,280 signatures |
 
 ---
 
-## Methodology sources
+## External recipe database
 
-- **Calories**: [rippedbody.com/calories](https://rippedbody.com/calories/) — Harris-Benedict BMR, 4-tier TDEE, 0.75%/wk fat loss
-- **Macros**: [rippedbody.com/macros](https://rippedbody.com/macros/) — protein by lean mass, fat/carb bands
-- **Body fat visual**: [rippedbody.com/body-fat-guide](https://rippedbody.com/body-fat-guide/)
-- **9 trainee categories**: [goal-setting 1](https://rippedbody.com/goal-setting-1/), [2](https://rippedbody.com/goal-setting-2/), [3](https://rippedbody.com/goal-setting-3/)
-- **Training programs**: [rippedbody.com/how-to-build-training-programs](https://rippedbody.com/how-to-build-training-programs/)
-- **Somatotype**: [muscleandstrength.com](https://www.muscleandstrength.com/articles/body-types-ectomorph-mesomorph-endomorph.html)
+Canonical recipe file:
 
----
+```text
+data/recipes/unified_external_recipes.json
+```
 
-## Highlights
+Current clean recipe count:
 
-- **9-dimensional archetype system** — deterministic signature like
-  `MUS-ECTO-BEG-YOUN-M-LIG-OMNI-GYM-60`. Combinatorial space: **25,920**.
-- **5 curated archetypes** covering the most common real-world scenarios.
-- **RippedBody trainee categories** — classifies clients into 1 of 9
-  physique states with tailored strategy, pitfalls, and recommendations.
-- **Visual body-fat estimation** — when tape measurements aren't available,
-  users self-classify against the RippedBody photo guide (7 bands).
-- **Experience-tiered calorie targets** — beginners bulk faster, cut at
-  0.75% BW/week; metabolic adaptation is accounted for.
-- **47 exercises** with equipment-aware selection (hard filter) and A/B variation.
-- **51 meals** across 8 cuisines, portion-scaled to hit calorie targets (≤0.4% error).
-- **Streamlined intake** — 3 short forms instead of 6; health screening
-  replaced by auto-generated recommendations.
+| Source group | Clean planner-ready recipes |
+|---|---:|
+| Muscle & Strength | 147 |
+| Trifecta | 137 |
+| Ethiopian/African sources | 39 |
+| **Total** | **323** |
+
+Intermediate normalized files:
+
+```text
+data/recipes/normalized/muscleandstrength_recipes.json
+data/recipes/normalized/trifecta_recipes.json
+data/recipes/normalized/ethiopian_recipes.json
+data/recipes/status/muscleandstrength_scrape_status.json
+```
 
 ---
 
 ## Quickstart
 
 ```bash
-# Run all demos, generate HTML, run tests
+# Run tests, showcase archetypes, and regenerate demo HTML plans
 bash examples/run_all.sh
 
-# CLI - generate a plan from a sample client
+# Generate a text plan from a sample profile
 python -m fitness_engine.cli profile examples/sample_client.json
+
+# Generate HTML
 python -m fitness_engine.cli profile examples/sample_client.json --format html --out output/plan.html
 
-# CLI - archetype cohort showcase
-python -m fitness_engine.cli showcase
+# Generate JSON
+python -m fitness_engine.cli profile examples/sample_client.json --format json
 
-# Run the tests
-PYTHONPATH=. python3 tests/test_calculators.py
-PYTHONPATH=. python3 tests/test_integration.py
+# Run tests directly
+python3 -m unittest tests.test_calculators tests.test_integration
 ```
 
 ---
@@ -89,11 +92,14 @@ from fitness_engine import (
     Sex, ActivityLevel, GoalArchetype,
     ExperienceLevel, DietaryPreference,
     TrainingEnvironment, SessionLength,
+    audit_7_day_meal_plan,
 )
 
 profile = ClientProfile(
-    age=22, sex=Sex.MALE,
-    height_cm=180, weight_kg=64,
+    age=22,
+    sex=Sex.MALE,
+    height_cm=180,
+    weight_kg=64,
     body_fat_pct=11,
     activity=ActivityLevel.LIGHTLY_ACTIVE,
     experience=ExperienceLevel.BEGINNER,
@@ -107,43 +113,98 @@ profile = ClientProfile(
 
 rec = Recommender(profile).recommend()
 
-print(rec.archetype_signature)                 # MUS-ECTO-BEG-YOUN-M-LIG-OMNI-GYM-60
-print(rec.trainee_category.category.value)     # skinny
-print(rec.trainee_category.strategy)           # bulk
-print(rec.energy.calorie_target)               # 3258.1
-print(rec.nutrition.macros.protein_g)          # 125.3 g
-print(rec.training.weekly_volume.total_sets)   # 70 sets/wk
+audit = audit_7_day_meal_plan(rec.nutrition.weekly_meal_plan)
+
+print(rec.archetype_signature)
+print(rec.energy.calorie_target)
+print(rec.nutrition.macros)
+print(rec.training.split.name)
+print(rec.protocols.exercise.split)
+print(len(rec.nutrition.weekly_meal_plan.days))     # 7
+print(len(rec.nutrition.weekly_meal_plan.alternatives))
+print(audit.summary)
 ```
 
 ---
 
-## Project layout
+## Repository layout
 
+```text
+fitness_engine/                     core Python package
+├── archetypes.py                    profile dimensions, signatures, trainee categories
+├── calculators.py                   body comp, calories, macros, adaptive helpers
+├── decision_trees.py                training split/volume/intensity/progression logic
+├── exercise_plans.py                exercise library and schedule builder
+├── meal_plans.py                    legacy curated meal library and day assembler
+├── seven_day_meal_planner.py        external-recipe 7-day planner + alternatives
+├── meal_plan_auditor.py             weekly meal-plan quality audit
+├── protocols.py                     comprehensive exercise/meal protocol builders
+├── questionnaires.py                intake forms and report helpers
+├── adjustments.py                   plateau/progress/reverse-diet guidance
+├── recommender.py                   profile → PlanRecommendation orchestrator
+└── cli.py                           command-line interface
+
+data/recipes/                       recipe data pipeline outputs
+├── unified_external_recipes.json    canonical planner database
+├── normalized/                      normalized source-specific recipe files
+└── status/                          scrape status/failure records
+
+scripts/                            data and output generation tools
+├── scrape_external_recipes.py       Trifecta + M&S direct scrape attempts
+├── import_muscleandstrength_recipes.py
+├── scrape_ethiopian_recipes.py
+├── build_unified_recipe_database.py
+└── generate_common_profile_meal_plans.py
+
+docs/
+├── analysis/                        critical analysis of the repo
+├── protocols/                       plan-building and recipe-system docs
+├── reference/                       project reference guide
+└── reports/                         remediation and meal-plan audit reports
+
+examples/                           sample profiles and HTML renderer
+output/                             generated demo plans and common-profile plans
+tests/                              unit and integration tests
 ```
-fitness_engine/         core Python package
-├── archetypes.py       9-dimensional archetype framework + 9 trainee categories
-├── calculators.py      BMR, TDEE, calorie target, macros, visual BF, somatotype
-├── questionnaires.py   3 streamlined intake forms + auto-recommendations
-├── decision_trees.py   RippedBody Training Pyramid decision logic
-├── meal_plans.py       51 meals + cuisine/diet filters + portion scaling
-├── exercise_plans.py   47 exercises with equipment-aware selection
-├── recommender.py      Orchestrator: profile -> PlanRecommendation
-└── cli.py              Command-line interface
 
-examples/
-├── sample_*.json       6 pre-built client profiles
-├── render_html.py      Standalone HTML renderer
-└── run_all.sh          One-shot verification script
+---
 
-tests/
-├── test_calculators.py    41 calculator unit tests
-└── test_integration.py    14 integration tests (all archetypes)
+## Useful maintenance commands
+
+```bash
+# Re-import attached Muscle & Strength export
+python3 scripts/import_muscleandstrength_recipes.py /home/user/uploads/recipes.json \
+  --out data/recipes/normalized/muscleandstrength_recipes.json
+
+# Re-scrape Trifecta recipes
+python3 scripts/scrape_external_recipes.py --skip-mns --trifecta-pages 30 \
+  --out data/recipes/normalized/trifecta_recipes.json
+
+# Re-scrape Ethiopian recipe sources
+python3 scripts/scrape_ethiopian_recipes.py \
+  --out data/recipes/normalized/ethiopian_recipes.json
+
+# Rebuild unified external recipe database
+python3 scripts/build_unified_recipe_database.py \
+  --out data/recipes/unified_external_recipes.json
+
+# Regenerate common profile meal plans
+python3 scripts/generate_common_profile_meal_plans.py
 ```
+
+---
+
+## Documentation
+
+- Critical analysis: `docs/analysis/fit-analysis.md`
+- Reference guide: `docs/reference/fitness-app-reference-guide.md`
+- Plan protocols: `docs/protocols/comprehensive-plan-building-protocols.md`
+- Recipe and 7-day meal planning system: `docs/protocols/recipe-scraping-and-7day-system.md`
+- Meal-plan audit report: `docs/reports/meal-plan-quality-audit.md`
+- Remediation report: `docs/reports/remediation-report.md`
 
 ---
 
 ## License & disclaimer
 
-This software is intended for **educational and coaching** use. It is
-not a substitute for medical advice. Clients with diagnosed conditions
-must obtain physician clearance before vigorous training.
+This software is intended for educational and coaching use. It is not a substitute for medical advice. Clients with diagnosed conditions, symptoms, pregnancy, eating-disorder risk, or very low calorie targets should seek professional medical guidance before following generated plans.

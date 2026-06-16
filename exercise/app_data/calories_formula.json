@@ -1,0 +1,40 @@
+{
+  "source": "https://www.fitclick.com/calories_burned",
+  "scraped": "2026-06-11",
+  "reference_conditions": {
+    "body_weight_lb": 150,
+    "duration_min": 15,
+    "note": "FitClick calculator defaults. exercise_calories.csv stores cal_per_hr_150lb (value shown at 150 lbs for 1 hour) and cal_15min_150lb (the default 15-min display)."
+  },
+  "scaling": {
+    "verified": "FitClick output is linear in body weight and duration (tested 75/150/300 lbs and 15/30/60 min: Crunches showed 51 cal @150lb/15min, 102 @300lb/15min, 204 @150lb/60min, 51 @75lb/30min).",
+    "formula_lb": "calories = cal_per_hr_150lb * (body_weight_lb / 150) * (duration_min / 60)",
+    "formula_kg": "calories = cal_per_hr_150lb * (body_weight_kg / 68.04) * (duration_min / 60)",
+    "met_equivalent": {
+      "met": "MET = cal_per_hr_150lb / 71.4",
+      "standard_met_formula": "calories_per_min = MET * 3.5 * body_weight_kg / 200",
+      "note": "71.4 = 3.5 * 68.04 kg / 200 * 60; using met_estimate with the standard MET formula reproduces FitClick's numbers for any weight/duration."
+    },
+    "example": "Squat (cal_per_hr_150lb=442) for a 180 lb user, 20 min: 442 * (180/150) * (20/60) = 177 calories"
+  },
+  "fallbacks": {
+    "fitclick_match": "Direct match to a FitClick exercise (exact/fuzzy/manual). 522 of 1164 exercises, 86% of all workout exercise slots.",
+    "category_estimate": "No FitClick match; median cal/hr of FitClick-created exercises in the inferred body-part category.",
+    "strength_median_estimate": "No category inferable; overall median of FitClick strength (non-cardio) exercises (408 cal/hr @150lb)."
+  },
+  "category_medians_cal_per_hr_150lb": {
+    "Abdominals": 357,
+    "Thighs": 408,
+    "Chest": 408,
+    "Biceps": 344,
+    "Cardio": 408,
+    "Back": 408,
+    "Shoulders": 344,
+    "Triceps": 306,
+    "Trapezius": 382,
+    "Calves": 238,
+    "Lower Back": 323,
+    "Forearms": 204,
+    "strength_overall": 408
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "score": 100,
+  "grade": "A",
+  "summary": "Meal plan quality grade A (100/100).",
+  "checks": {
+    "structure": "pass",
+    "calories": "pass",
+    "protein": "pass",
+    "fibre": "pass",
+    "diet_compatibility": "pass",
+    "variety": "pass",
+    "macro_confidence": "pass",
+    "portion_scaling": "pass",
+    "slot_sanity": "pass",
+    "source_mix": "daringgourmet.com:1, muscleandstrength:18, trifecta:9"
+  },
+  "issues": [],
+  "recommendations": [
+    "Plan is usable; continue improving fibre metadata and rotate recipe sources for adherence."
+  ]
+}

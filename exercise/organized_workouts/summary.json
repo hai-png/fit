@@ -1,0 +1,49 @@
+{
+  "total_files": 606,
+  "parse_audit": 32,
+  "content_filtered": 52,
+  "duplicate_filtered": 14,
+  "strict_filtered": 250,
+  "final_classified": 258,
+  "nonzero_combinations": 184,
+  "total_combinations": 2268,
+  "coverage_pct": 8.11,
+  "multi_workout_combos": 41,
+  "dimension_counts": {
+    "equipment": {
+      "fully equipped gym": 150,
+      "body weight": 14,
+      "home / small gym": 94
+    },
+    "fitness_goal": {
+      "fat loss": 53,
+      "muscle building": 156,
+      "general fitness": 19,
+      "strength": 30
+    },
+    "workout_type": {
+      "full body": 71,
+      "split": 111,
+      "single muscle group": 76
+    },
+    "gender": {
+      "men": 29,
+      "women": 36,
+      "both": 193
+    },
+    "training_level": {
+      "beginner": 139,
+      "intermediate": 93,
+      "advanced": 26
+    },
+    "days_per_week": {
+      "1": 44,
+      "2": 30,
+      "3": 70,
+      "4": 61,
+      "5": 28,
+      "6": 18,
+      "7": 7
+    }
+  }
+}
