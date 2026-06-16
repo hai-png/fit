@@ -18,8 +18,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 from .archetypes import (
-    ExperienceLevel, GoalArchetype, SessionLength, Somatotype,
-    TrainingEnvironment,
+    ExperienceLevel, GoalArchetype, SessionLength, TrainingEnvironment,
 )
 
 

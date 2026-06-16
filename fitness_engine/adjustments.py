@@ -17,7 +17,7 @@ Sources:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 
 # --------------------------------------------------------------------------- #
@@ -120,9 +120,9 @@ def cut_adjustment_checklist() -> CutAdjustmentChecklist:
         {
             "step": 10,
             "check": "Last resort: reduce calories",
-            "action": f"Reduce daily intake by ~200-250 kcal. Reduce from "
-                      f"carbs first (and fat if already low). Never reduce "
-                      f"protein. Wait 3-4 weeks before adjusting again.",
+            "action": "Reduce daily intake by ~200-250 kcal. Reduce from "
+                      "carbs first (and fat if already low). Never reduce "
+                      "protein. Wait 3-4 weeks before adjusting again.",
         },
     ]
     return CutAdjustmentChecklist(
@@ -208,8 +208,8 @@ def bulk_adjustment_checklist() -> BulkAdjustmentChecklist:
         {
             "step": 9,
             "check": "Last resort: increase calories",
-            "action": f"Increase daily intake by ~5% (~150-200 kcal). "
-                      f"Add mostly carbs. Wait 5 weeks before adjusting again.",
+            "action": "Increase daily intake by ~5% (~150-200 kcal). "
+                      "Add mostly carbs. Wait 5 weeks before adjusting again.",
         },
     ]
     return BulkAdjustmentChecklist(

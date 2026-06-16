@@ -17,7 +17,7 @@ import json
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .archetypes import DietaryPreference
 from .calculators import Macros, MicronutrientTargets, micronutrient_targets
@@ -226,8 +226,20 @@ def _score(meal: MealItem, slot_target: float, protein_slot_target: float, prefe
         score += 80
     if meal.name in used_names:
         score += 10000
-    if _confidence_of(meal) in {"missing", "estimated"}:
-        score += 120
+    confidence_penalty = {
+        "verified": 0,
+        "curated": 0,
+        "parsed": 60,
+        "estimated": 220,
+        "missing": 400,
+    }.get(_confidence_of(meal), 120)
+    score += confidence_penalty
+    source_penalty = {
+        "muscleandstrength": 0,
+        "trifecta": 0,
+        "internal": 20,
+    }.get(_source_of(meal), 90)
+    score += source_penalty
     # Mild preference for fibre when calories/protein are close.
     score -= min(meal.fibre_g, 12) * 2
     return score + random.random() * 0.01
@@ -398,9 +410,10 @@ def assemble_7_day_meal_plan(
     preferred_cuisines: Optional[Sequence[str]] = None,
     include_external: bool = True, external_path: Optional[str] = None,
     include_internal: bool = False, alternatives_per_meal: int = 3,
-    seed: int = 7,
+    seed: Optional[int] = None,
 ) -> SevenDayMealPlan:
-    random.seed(seed)
+    if seed is not None:
+        random.seed(seed)
     preferred_cuisines = list(preferred_cuisines or [])
     pool = recipe_pool(diet, allergens, include_external, external_path, include_internal=include_internal)
     if not pool:

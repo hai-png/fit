@@ -20,7 +20,8 @@ The plan builder uses RippedBody program-building principles:
 """
 from __future__ import annotations
 
-import copy
+import json
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -35,11 +36,12 @@ from .archetypes import (
 ENVIRONMENT_EQUIPMENT: Dict[TrainingEnvironment, List[str]] = {
     TrainingEnvironment.HOME_BODYWEIGHT: [],
     TrainingEnvironment.HOME_GYM: [
-        "dumbbells", "bands", "bench", "pullup_bar", "kettlebells",
+        "dumbbells", "bands", "bench", "pullup_bar", "kettlebell",
     ],
     TrainingEnvironment.GYM_FULL: [
         "barbell", "bench", "dumbbells", "machine", "cardio_machine",
-        "kettlebells", "pullup_bar", "trap_bar",
+        "kettlebell", "bands", "pullup_bar", "trap_bar", "ez_bar",
+        "exercise_ball",
     ],
 }
 
@@ -207,7 +209,7 @@ EXERCISE_LIBRARY: Dict[str, Exercise] = {
     "goblet_squat": Exercise(
         name="Goblet squat", pattern="squat", primary_muscle="quads",
         secondary_muscles=["glutes", "core"],
-        equipment=["dumbbells", "kettlebells"], difficulty=1,
+        equipment=["dumbbells"], difficulty=1,
         regression="bodyweight_squat", progression="barbell_squat",
         cues=["Elbows inside knees at bottom"],
     ),
@@ -378,7 +380,7 @@ EXERCISE_LIBRARY: Dict[str, Exercise] = {
     "farmer_carry": Exercise(
         name="Farmer carry", pattern="carry", primary_muscle="core",
         secondary_muscles=["traps", "forearms"],
-        equipment=["dumbbells", "kettlebells"], difficulty=1,
+        equipment=["dumbbells"], difficulty=1,
         regression="short_carry", progression="loaded_carry_long",
         cues=["Tall posture", "Don't lean"],
     ),
@@ -422,6 +424,79 @@ EXERCISE_LIBRARY: Dict[str, Exercise] = {
         cues=["Legs-back-arms; arms-back-legs", "Stroke rate 22-26 spm"],
     ),
 }
+
+
+def _normalise_external_equipment(equipment: List[str]) -> Optional[List[str]]:
+    """Map comprehensive-database equipment tokens to engine tokens.
+
+    Unknown or non-actionable tokens are skipped so the picker does not emit
+    exercises with equipment the environment model cannot reason about.
+    """
+    mapping = {
+        "bodyweight": None,
+        "cable": "machine",
+        "kettlebells": "kettlebell",
+        "kettlebell": "kettlebell",
+        "barbell": "barbell",
+        "dumbbells": "dumbbells",
+        "dumbbell": "dumbbells",
+        "machine": "machine",
+        "bands": "bands",
+        "trap_bar": "trap_bar",
+        "ez_bar": "ez_bar",
+        "exercise_ball": "exercise_ball",
+    }
+    out: List[str] = []
+    for raw in equipment or []:
+        raw_token = str(raw).lower()
+        if raw_token not in mapping:
+            return None
+        token = mapping[raw_token]
+        if token is None:
+            continue
+        if token not in out:
+            out.append(token)
+    return out
+
+
+def _load_comprehensive_exercise_library() -> Dict[str, Exercise]:
+    """Load the checked-in 115-exercise database as additional picker options."""
+    path = Path(__file__).resolve().parents[1] / "data" / "exercises" / "comprehensive_exercise_database.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    out: Dict[str, Exercise] = {}
+    for rec in payload.get("exercises", []):
+        key = str(rec.get("id") or "").strip()
+        if not key or key in EXERCISE_LIBRARY:
+            continue
+        equipment = _normalise_external_equipment(list(rec.get("equipment") or []))
+        if equipment is None:
+            continue
+        pattern = str(rec.get("pattern") or "").strip()
+        primary = str(rec.get("primary_muscle") or "").strip()
+        name = str(rec.get("name") or key).strip()
+        if not pattern or not primary or not name:
+            continue
+        out[key] = Exercise(
+            name=name,
+            pattern=pattern,
+            primary_muscle=primary,
+            secondary_muscles=list(rec.get("secondary_muscles") or []),
+            equipment=equipment,
+            difficulty=int(rec.get("difficulty") or 1),
+            regression=rec.get("regression"),
+            progression=rec.get("progression"),
+            cues=[],
+            tags=["comprehensive_db"],
+        )
+    return out
+
+
+EXERCISE_LIBRARY.update(_load_comprehensive_exercise_library())
 
 
 # --------------------------------------------------------------------------- #

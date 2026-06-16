@@ -17,10 +17,11 @@ import argparse
 import dataclasses
 import json
 import sys
-from typing import Any, Dict
 
 from . import (
     ClientProfile, Recommender,
+    DailyLog, adaptive_tdee, reverse_diet_protocol,
+    init_db, store_client, add_weight, add_adherence, client_summary,
     all_curated, __version__,
 )
 from .meal_plans import MEAL_LIBRARY
@@ -41,6 +42,11 @@ def _format_plan_text(rec) -> str:
     bc = rec.body_composition
     out.append(f"Body Composition: BMI {bc.bmi} ({bc.bmi_category}), "
                f"BF {bc.body_fat_pct}% [{bc.estimation_method}]")
+    ai = rec.anthropometrics
+    if ai.waist_to_height_ratio is not None:
+        out.append(f"Anthropometrics: WHtR {ai.waist_to_height_ratio} "
+                   f"({ai.waist_to_height_category}), "
+                   f"WHR {ai.waist_to_hip_ratio}, ABSI {ai.absi}")
     tc = rec.trainee_category
     out.append(f"Trainee Category: {tc.category.value} ({tc.strategy})")
     out.append(f"  -> {tc.summary}")
@@ -50,6 +56,10 @@ def _format_plan_text(rec) -> str:
     m = rec.nutrition.macros
     out.append(f"Macros: {m.protein_g}P / {m.carbs_g}C / {m.fat_g}F "
                f"({m.calories} kcal)")
+    mc = rec.nutrition.macro_cycle
+    out.append(f"Macro cycle option: training day {mc.training_day.calories:.0f} kcal, "
+               f"rest day {mc.rest_day.calories:.0f} kcal "
+               f"(weekly avg {mc.weekly_average_calories:.0f})")
     t = rec.training
     out.append(f"Training: {t.weekly_volume.total_sets} sets/wk, "
                f"{t.split.name}, {t.periodisation.scheme}")
@@ -178,6 +188,7 @@ def cmd_new(args) -> int:
         "visual_bf_label": None,
         "wrist_cm": None,
         "resting_hr": 60,
+        "measured_max_hr": None,
         "activity": "mostly_sedentary",
         "dietary_preference": "omnivore",
         "allergies": [],
@@ -192,10 +203,95 @@ def cmd_new(args) -> int:
         "target_weight_kg": None,
         "timeline_weeks": 12,
         "motivation": "appearance",
+        "medical_flags": {
+            "pregnant_or_recent_postpartum": False,
+            "recent_surgery": False,
+            "diagnosed_eating_disorder": False,
+            "cardiac_condition": False,
+            "unexplained_chest_pain_or_fainting": False,
+        },
+        "working_weights_kg": {
+            "squat": None,
+            "bench_press": None,
+            "deadlift": None,
+            "overhead_press": None,
+            "row": None,
+            "pullup": None,
+        },
+        "plan_week": 1,
+        "meal_plan_seed": None,
     }
     with open(args.output, "w") as fh:
         json.dump(template, fh, indent=2)
     print(f"Scaffolded {args.output}")
+    return 0
+
+
+def _client_id_from_name(name: str) -> str:
+    return "".join(ch.lower() if ch.isalnum() else "-" for ch in name).strip("-") or "client"
+
+
+def cmd_review(args) -> int:
+    """Review weight/intake logs and optional reverse-diet targets."""
+    with open(args.input) as fh:
+        data = json.load(fh)
+    logs = [DailyLog(**row) for row in data.get("logs", [])]
+    result = {"adaptive_tdee": None, "reverse_diet": None}
+    if "formula_tdee" in data:
+        result["adaptive_tdee"] = dataclasses.asdict(
+            adaptive_tdee(logs, float(data["formula_tdee"]), data.get("smoothing_days", 7))
+        )
+    reverse = data.get("reverse_diet")
+    if reverse:
+        result["reverse_diet"] = dataclasses.asdict(reverse_diet_protocol(
+            current_calories=float(reverse["current_calories"]),
+            estimated_maintenance=float(reverse.get("estimated_maintenance", result["adaptive_tdee"]["adaptive_tdee"] if result["adaptive_tdee"] else data.get("formula_tdee", reverse["current_calories"]))),
+            bodyweight_kg=float(reverse["bodyweight_kg"]),
+            approach=reverse.get("approach", "moderate"),
+            build_muscle=bool(reverse.get("build_muscle", False)),
+        ))
+    out = json.dumps(result, indent=2)
+    if args.out:
+        with open(args.out, "w") as fh:
+            fh.write(out)
+        print(f"Wrote {args.out}", file=sys.stderr)
+    else:
+        print(out)
+    return 0
+
+
+def cmd_db_init(args) -> int:
+    init_db(args.db)
+    print(f"Initialised {args.db}")
+    return 0
+
+
+def cmd_store_client(args) -> int:
+    with open(args.profile) as fh:
+        data = json.load(fh)
+    profile = ClientProfile.from_dict(data)
+    rec = Recommender(profile).recommend() if args.with_plan else None
+    name = data.get("name", "Client")
+    client_id = args.client_id or _client_id_from_name(name)
+    store_client(client_id, name, profile.to_dict(), dataclasses.asdict(rec) if rec else None, args.db)
+    print(f"Stored client {client_id} in {args.db}")
+    return 0
+
+
+def cmd_update_weight(args) -> int:
+    add_weight(args.client_id, args.weight_kg, args.day, args.db)
+    print(f"Added weight for {args.client_id}: {args.weight_kg:g} kg")
+    return 0
+
+
+def cmd_log_adherence(args) -> int:
+    add_adherence(args.client_id, args.nutrition_pct, args.training_pct, args.day, args.notes or "", args.db)
+    print(f"Added adherence log for {args.client_id}")
+    return 0
+
+
+def cmd_client_summary(args) -> int:
+    print(json.dumps(client_summary(args.client_id, args.db), indent=2))
     return 0
 
 
@@ -242,6 +338,43 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("new", help="Scaffold a new client JSON profile")
     sp.add_argument("output", help="output JSON path")
     sp.set_defaults(func=cmd_new)
+
+    sp = sub.add_parser("review", help="Review intake/weight logs for adaptive TDEE and reverse dieting")
+    sp.add_argument("input", help="review JSON with formula_tdee/logs and optional reverse_diet block")
+    sp.add_argument("--out", help="write JSON output to file instead of stdout")
+    sp.set_defaults(func=cmd_review)
+
+    sp = sub.add_parser("db-init", help="Initialise a local SQLite coaching database")
+    sp.add_argument("--db", default="clients.db", help="SQLite database path")
+    sp.set_defaults(func=cmd_db_init)
+
+    sp = sub.add_parser("store-client", help="Store a profile and optional generated plan snapshot")
+    sp.add_argument("profile", help="profile JSON to store")
+    sp.add_argument("--client-id", help="stable client identifier; defaults to slugified name")
+    sp.add_argument("--with-plan", action="store_true", help="also generate and store a plan snapshot")
+    sp.add_argument("--db", default="clients.db", help="SQLite database path")
+    sp.set_defaults(func=cmd_store_client)
+
+    sp = sub.add_parser("update-weight", help="Append a client weight log")
+    sp.add_argument("client_id")
+    sp.add_argument("weight_kg", type=float)
+    sp.add_argument("--day", type=int)
+    sp.add_argument("--db", default="clients.db", help="SQLite database path")
+    sp.set_defaults(func=cmd_update_weight)
+
+    sp = sub.add_parser("log-adherence", help="Append nutrition/training adherence percentages")
+    sp.add_argument("client_id")
+    sp.add_argument("--nutrition-pct", type=float)
+    sp.add_argument("--training-pct", type=float)
+    sp.add_argument("--day", type=int)
+    sp.add_argument("--notes")
+    sp.add_argument("--db", default="clients.db", help="SQLite database path")
+    sp.set_defaults(func=cmd_log_adherence)
+
+    sp = sub.add_parser("client-summary", help="Print stored client logs and plan snapshots")
+    sp.add_argument("client_id")
+    sp.add_argument("--db", default="clients.db", help="SQLite database path")
+    sp.set_defaults(func=cmd_client_summary)
 
     sp = sub.add_parser("meals", help="List meal library")
     sp.set_defaults(func=cmd_meal_library)

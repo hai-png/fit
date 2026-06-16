@@ -95,7 +95,6 @@ def infer_cuisine(title: str, text: str = "") -> str:
 
 
 def infer_tags(title: str, text: str, ingredients: Iterable[str]) -> List[str]:
-    blob = f"{title} {text} {' '.join(ingredients)}".lower()
     title_text = f"{title} {text}".lower()
     ingredient_blob = " ".join(ingredients).lower()
     tags = {"balanced"}

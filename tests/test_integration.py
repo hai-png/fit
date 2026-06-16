@@ -229,5 +229,117 @@ class ArchetypeCardinality(unittest.TestCase):
             seen.add(s)
 
 
+class InputValidation(unittest.TestCase):
+    def test_profile_accepts_string_enum_values(self):
+        p = ClientProfile(
+            age=30, sex="male", height_cm=178, weight_kg=82,
+            activity="mostly_sedentary", dietary_preference="omnivore",
+            experience="intermediate", environment="gym_full",
+            session_length="standard_60", primary_goal="fat_loss",
+            meals_per_day=4, days_per_week=3,
+        )
+        self.assertEqual(p.sex, Sex.MALE)
+        self.assertEqual(p.primary_goal, GoalArchetype.FAT_LOSS)
+
+    def test_profile_rejects_silent_clamping_inputs(self):
+        with self.assertRaisesRegex(ValueError, "days_per_week"):
+            ClientProfile(age=30, sex=Sex.MALE, height_cm=178, weight_kg=82,
+                          days_per_week=7)
+        with self.assertRaisesRegex(ValueError, "meals_per_day"):
+            ClientProfile(age=30, sex=Sex.MALE, height_cm=178, weight_kg=82,
+                          meals_per_day=2)
+        with self.assertRaisesRegex(ValueError, "weight_kg"):
+            ClientProfile(age=30, sex=Sex.MALE, height_cm=178, weight_kg=0)
+
+
+class ExerciseEquipmentIntegrity(unittest.TestCase):
+    def test_full_gym_declares_all_library_equipment(self):
+        from fitness_engine.exercise_plans import EXERCISE_LIBRARY, ENVIRONMENT_EQUIPMENT
+        used = {eq for ex in EXERCISE_LIBRARY.values() for eq in ex.equipment}
+        available = set(ENVIRONMENT_EQUIPMENT[TrainingEnvironment.GYM_FULL])
+        self.assertFalse(used - available)
+
+    def test_home_gym_kettlebell_pattern_is_feasible(self):
+        from fitness_engine.exercise_plans import pick_exercise
+        ex = pick_exercise("hinge", TrainingEnvironment.HOME_GYM, difficulty_max=2)
+        self.assertIsNotNone(ex)
+        self.assertNotIn("kettlebells", ex.equipment)
+
+
+class RemediatedCriticalIssues(unittest.TestCase):
+    def test_anthropometric_indices_are_wired_into_recommendation(self):
+        rec = Recommender(ClientProfile(
+            age=35, sex=Sex.MALE, height_cm=180, weight_kg=85,
+            waist_cm=86, hip_cm=100, body_fat_pct=18,
+        )).recommend()
+        self.assertEqual(rec.anthropometrics.waist_to_height_ratio, round(86 / 180, 3))
+        self.assertEqual(rec.anthropometrics.waist_to_hip_ratio, 0.86)
+        self.assertIsNotNone(rec.anthropometrics.absi)
+
+    def test_schedule_exposes_volume_reconciliation(self):
+        rec = Recommender(ClientProfile(
+            age=30, sex=Sex.MALE, height_cm=178, weight_kg=82,
+            body_fat_pct=18, days_per_week=4, meals_per_day=4,
+            experience=ExperienceLevel.INTERMEDIATE,
+            primary_goal=GoalArchetype.MUSCLE_GAIN,
+        )).recommend()
+        audit = rec.training.volume_reconciliation
+        self.assertEqual(set(audit["target_sets"]), set(rec.training.weekly_volume.per_muscle_group))
+        self.assertEqual(set(audit["diff_sets"]), set(rec.training.weekly_volume.per_muscle_group))
+        self.assertIsInstance(audit["summary"], str)
+
+    def test_medical_flags_surface_as_warning(self):
+        rec = Recommender(ClientProfile(
+            age=30, sex=Sex.FEMALE, height_cm=165, weight_kg=65,
+            medical_flags={"recent_surgery": True},
+        )).recommend()
+        self.assertTrue(any("Medical review required" in w for w in rec.warnings))
+
+    def test_working_weights_emit_load_guidance(self):
+        rec = Recommender(ClientProfile(
+            age=30, sex=Sex.MALE, height_cm=178, weight_kg=82,
+            environment=TrainingEnvironment.GYM_FULL, days_per_week=3,
+            working_weights_kg={"bench_press": 80},
+        )).recommend()
+        guided = [
+            ex for day in rec.training.weekly_schedule.values()
+            for ex in day if ex.get("load_guidance")
+        ]
+        self.assertTrue(guided)
+        self.assertGreater(guided[0]["load_guidance"]["estimated_1rm_kg"], 80)
+
+    def test_comprehensive_exercise_database_is_wired_into_picker(self):
+        from fitness_engine.exercise_plans import EXERCISE_LIBRARY
+        self.assertGreaterEqual(len(EXERCISE_LIBRARY), 115)
+        self.assertTrue(any("comprehensive_db" in ex.tags for ex in EXERCISE_LIBRARY.values()))
+
+    def test_recipe_pool_exhaustion_has_actionable_error(self):
+        target = macros_for(2200, 80, 64, GoalArchetype.RECOMPOSITION,
+                            Sex.MALE, Somatotype.MESOMORPH,
+                            DietaryPreference.VEGAN, body_fat_pct=20)
+        with self.assertRaisesRegex(ValueError, "No compatible recipes"):
+            assemble_7_day_meal_plan(DietaryPreference.VEGAN, 2200, target,
+                                     allergens=["tofu", "bean", "rice", "oat", "chickpea", "lentil", "salad", "smoothie", "protein"],
+                                     include_external=False, include_internal=False)
+
+    def test_sqlite_persistence_round_trip(self):
+        import tempfile
+        from pathlib import Path
+        from fitness_engine import init_db, store_client, add_weight, add_adherence, client_summary
+
+        db = Path(tempfile.gettempdir()) / "fit_test_clients.db"
+        if db.exists():
+            db.unlink()
+        init_db(str(db))
+        profile = {"age": 30, "sex": "male", "height_cm": 178, "weight_kg": 82}
+        store_client("test-client", "Test Client", profile, db_path=str(db))
+        add_weight("test-client", 81.5, day=1, db_path=str(db))
+        add_adherence("test-client", nutrition_pct=90, training_pct=100, day=1, db_path=str(db))
+        summary = client_summary("test-client", str(db))
+        self.assertEqual(summary["client"]["id"], "test-client")
+        self.assertEqual(summary["weights"][0]["weight_kg"], 81.5)
+        self.assertEqual(summary["adherence"][0]["nutrition_pct"], 90)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

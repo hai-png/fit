@@ -11,7 +11,7 @@ import unittest
 from fitness_engine import (
     ActivityLevel, GoalArchetype, Sex, ExperienceLevel,
     bmi, bmi_category, bmr_harris_benedict, bmr_mifflin, bmr_katch,
-    body_fat_navy, body_fat_bmi_method, body_fat_from_visual,
+    body_fat_from_visual,
     body_composition, correct_bf_estimate,
     tdee, calorie_target, energy_expenditure,
     one_rep_max, cardio_zones, hydration, macros_for,

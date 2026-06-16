@@ -18,7 +18,7 @@ from html import escape
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fitness_engine import ClientProfile, Recommender
+from fitness_engine import ClientProfile, Recommender, __version__
 
 
 # --------------------------------------------------------------------------- #
@@ -86,6 +86,7 @@ def render(rec, client_name: str = "Client") -> str:
     t = rec.training
     n = rec.nutrition
     tc = rec.trainee_category
+    ai = rec.anthropometrics
 
     html = ['<!doctype html><html><head><meta charset="utf-8">']
     html.append(f"<title>{escape(client_name)} - Personalised Plan</title>")
@@ -126,6 +127,8 @@ def render(rec, client_name: str = "Client") -> str:
       <div class="kpi"><span class="v">{bc.bmi}</span><span class="u">BMI ({bc.bmi_category})</span></div>
       <div class="kpi"><span class="v">{bc.body_fat_pct}%</span><span class="u">body fat [{bc.estimation_method}]</span></div>
       <div class="kpi"><span class="v">{bc.lean_mass_kg}</span><span class="u">kg lean mass</span></div>
+      <div class="kpi"><span class="v">{ai.waist_to_height_ratio if ai.waist_to_height_ratio is not None else '-'}</span><span class="u">waist-to-height</span></div>
+      <div class="kpi"><span class="v">{ai.ideal_body_weight_kg}</span><span class="u">kg Devine IBW ref.</span></div>
     </div>''')
     html.append(f'''<div class="panel">
       <h3>Energy & Macros</h3>
@@ -133,6 +136,7 @@ def render(rec, client_name: str = "Client") -> str:
       <div class="kpi"><span class="v">{m.protein_g:.0f}g</span><span class="u">protein ({m.protein_pct}%)</span></div>
       <div class="kpi"><span class="v">{m.carbs_g:.0f}g</span><span class="u">carbs ({m.carbs_pct}%)</span></div>
       <div class="kpi"><span class="v">{m.fat_g:.0f}g</span><span class="u">fat ({m.fat_pct}%)</span></div>
+      <div class="kpi"><span class="v">{n.macro_cycle.training_day.calories:.0f}/{n.macro_cycle.rest_day.calories:.0f}</span><span class="u">training/rest kcal option</span></div>
     </div>''')
     html.append(f'''<div class="panel">
       <h3>Training</h3>
@@ -159,19 +163,30 @@ def render(rec, client_name: str = "Client") -> str:
 
     # Volume + intensity + progression
     html.append('<div class="panel"><h2>Training Setup</h2>')
-    html.append(f'<h3>Volume per muscle group (sets/week)</h3>')
+    html.append('<h3>Volume per muscle group (sets/week)</h3>')
     html.append('<table>')
     for grp, sets_ in t.weekly_volume.per_muscle_group.items():
         html.append(f'<tr><td>{grp.title()}</td>'
                     f'<td><div class="bar"><span style="width:{min(100, sets_*8)}%"></span></div></td>'
                     f'<td style="text-align:right">{sets_}</td></tr>')
     html.append('</table>')
-    html.append(f'<h3>Intensity</h3>')
+    if getattr(t, "volume_reconciliation", None):
+        html.append('<h3>Scheduled vs Target Volume</h3>')
+        html.append(f'<p>{escape(t.volume_reconciliation.get("summary", ""))}</p>')
+        html.append('<table><tr><th>Muscle</th><th>Target</th><th>Scheduled</th><th>Diff</th></tr>')
+        for muscle, target in t.volume_reconciliation.get("target_sets", {}).items():
+            scheduled = t.volume_reconciliation.get("scheduled_sets", {}).get(muscle, 0)
+            diff = t.volume_reconciliation.get("diff_sets", {}).get(muscle, 0)
+            cls = "good" if abs(diff) <= 1 else "warn"
+            html.append(f'<tr><td>{escape(muscle.title())}</td><td>{target}</td>'
+                        f'<td>{scheduled}</td><td class="{cls}">{diff:+d}</td></tr>')
+        html.append('</table>')
+    html.append('<h3>Intensity</h3>')
     html.append(f'<p>Primary lifts: <b>{t.intensity.primary_reps}</b> reps @ '
                 f'{t.intensity.primary_rir} RIR | '
                 f'Accessories: <b>{t.intensity.accessory_reps}</b> reps @ '
                 f'{t.intensity.accessory_rir} RIR</p>')
-    html.append(f'<h3>Progression</h3>')
+    html.append('<h3>Progression</h3>')
     html.append(f'<p>{escape(t.progression.primary)}<br>'
                 f'<small>{escape(t.progression.rule)}</small></p>')
     html.append(f'<h3>Periodisation: {escape(t.periodisation.scheme)}</h3>')
@@ -191,6 +206,14 @@ def render(rec, client_name: str = "Client") -> str:
                 f'<div>{escape(" | ".join(ex["equipment"]))}</div>'
                 f'</div>'
             )
+            if ex.get("load_guidance"):
+                lg = ex["load_guidance"]
+                html.append(
+                    f'<div class="recipe">Load guide: start around '
+                    f'{lg["suggested_working_weight_kg"]:.1f} kg '
+                    f'(from {escape(lg["source_lift"])}; est. 1RM '
+                    f'{lg["estimated_1rm_kg"]:.1f} kg).</div>'
+                )
     html.append('</div>')
 
     # Warm-up / Cool-down
@@ -251,10 +274,14 @@ def render(rec, client_name: str = "Client") -> str:
         html.append('<p>No specific supplements recommended. Focus on whole foods.</p>')
     html.append('</div>')
 
-    html.append(f'<footer>Generated by Fitness Engine v2.0 | '
+    html.append(f'<footer>Generated by Fitness Engine v{__version__} | '
                 f'{escape(rec.archetype_signature)} | '
                 f'Target: {e.calorie_target:.0f} kcal | '
-                f'Volume: {t.weekly_volume.total_sets} sets/wk</footer>')
+                f'Volume: {t.weekly_volume.total_sets} sets/wk<br>'
+                f'Educational/coaching use only; not medical advice. '
+                f'Consult a qualified clinician before starting if you have '
+                f'a medical condition, injury, pregnancy/post-partum status, '
+                f'eating-disorder history, or recent surgery.</footer>')
     html.append('</body></html>')
     return "\n".join(html)
 

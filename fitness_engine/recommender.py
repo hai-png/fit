@@ -9,20 +9,22 @@ PlanRecommendation grounded in the RippedBody methodology.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
+import hashlib
+import json
 from typing import Any, Dict, List, Optional
 
 from .archetypes import (
-    ActivityLevel, AgeGroup, ArchetypeSignature, DietaryPreference,
+    ActivityLevel, ArchetypeSignature, DietaryPreference,
     ExperienceLevel, GoalArchetype, Sex, Somatotype, TrainingEnvironment,
     SessionLength, TraineeProfile,
 )
 from .calculators import (
     BodyComposition, CardioZones, EnergyExpenditure, Hydration, Macros,
-    MicronutrientTargets, MuscularPotential,
+    MicronutrientTargets, MuscularPotential, MacroCycle, AnthropometricIndices,
     body_composition, energy_expenditure, hydration,
     macros_for, cardio_zones, infer_age_group, infer_somatotype,
     classify_trainee, recommend_phase_strategy, micronutrient_targets,
-    muscular_potential,
+    muscular_potential, one_rep_max, macro_cycle, anthropometric_indices,
 )
 from .decision_trees import (
     IntensityScheme, Periodisation, ProgressionRule, SessionDensity,
@@ -30,7 +32,7 @@ from .decision_trees import (
     cuisine_pick, progression_rule, session_density, supplement_stack,
     training_split, weekly_volume, periodisation,
 )
-from .meal_plans import MealPlan, assemble_day
+from .meal_plans import MealPlan
 from .seven_day_meal_planner import SevenDayMealPlan, assemble_7_day_meal_plan
 from .exercise_plans import weekly_split
 from .questionnaires import IntakeReport, intake_report
@@ -54,6 +56,7 @@ class ClientProfile:
     visual_bf_label: Optional[str] = None
     wrist_cm: Optional[float] = None
     resting_hr: int = 60
+    measured_max_hr: Optional[int] = None
 
     # Activity
     activity: ActivityLevel = ActivityLevel.MOSTLY_SEDENTARY
@@ -77,6 +80,75 @@ class ClientProfile:
     timeline_weeks: int = 12
     motivation: str = ""
 
+    # Safety / progression / repeatability
+    medical_flags: Dict[str, bool] = field(default_factory=dict)
+    working_weights_kg: Dict[str, float] = field(default_factory=dict)
+    plan_week: int = 1
+    meal_plan_seed: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        """Validate and normalise profile inputs at the API boundary.
+
+        The calculators intentionally expose low-level functions, but the
+        recommender should fail fast with actionable errors instead of producing
+        silent clamps (for example, a 7-day lifting request previously returned
+        a 6-day plan).  String enum values are accepted for ergonomic direct
+        construction; they are normalised to enum instances here.
+        """
+        self.sex = Sex(self.sex)
+        self.activity = ActivityLevel(self.activity)
+        self.dietary_preference = DietaryPreference(self.dietary_preference)
+        self.experience = ExperienceLevel(self.experience)
+        self.environment = TrainingEnvironment(self.environment)
+        self.session_length = SessionLength(self.session_length)
+        self.primary_goal = GoalArchetype(self.primary_goal)
+
+        if not 13 <= self.age <= 100:
+            raise ValueError("age must be between 13 and 100")
+        if not 50 <= self.height_cm <= 250:
+            raise ValueError("height_cm must be between 50 and 250")
+        if not 20 <= self.weight_kg <= 350:
+            raise ValueError("weight_kg must be between 20 and 350")
+        if self.body_fat_pct is not None and not 2 <= self.body_fat_pct <= 70:
+            raise ValueError("body_fat_pct must be between 2 and 70 when provided")
+        for name in ("waist_cm", "neck_cm", "hip_cm", "wrist_cm"):
+            value = getattr(self, name)
+            if value is not None and value <= 0:
+                raise ValueError(f"{name} must be positive when provided")
+        if not 30 <= self.resting_hr <= 220:
+            raise ValueError("resting_hr must be between 30 and 220")
+        if self.measured_max_hr is not None and not 80 <= self.measured_max_hr <= 240:
+            raise ValueError("measured_max_hr must be between 80 and 240 when provided")
+        if self.measured_max_hr is not None and self.measured_max_hr <= self.resting_hr:
+            raise ValueError("measured_max_hr must exceed resting_hr")
+        if not 3 <= self.meals_per_day <= 5:
+            raise ValueError("meals_per_day must be between 3 and 5")
+        if not 1 <= self.days_per_week <= 6:
+            raise ValueError("days_per_week must be between 1 and 6")
+        if self.timeline_weeks <= 0:
+            raise ValueError("timeline_weeks must be positive")
+        if self.target_weight_kg is not None and self.target_weight_kg <= 0:
+            raise ValueError("target_weight_kg must be positive when provided")
+        if self.plan_week <= 0:
+            raise ValueError("plan_week must be positive")
+        if self.meal_plan_seed is not None and self.meal_plan_seed < 0:
+            raise ValueError("meal_plan_seed must be non-negative when provided")
+
+        self.medical_flags = {
+            str(k): bool(v) for k, v in (self.medical_flags or {}).items()
+        }
+        self.working_weights_kg = {
+            str(k): float(v) for k, v in (self.working_weights_kg or {}).items()
+            if v is not None
+        }
+        for lift, load in self.working_weights_kg.items():
+            if load <= 0:
+                raise ValueError(f"working_weights_kg[{lift!r}] must be positive")
+
+        self.allergies = list(self.allergies or [])
+        self.dislikes = list(self.dislikes or [])
+        self.preferred_cuisines = list(self.preferred_cuisines or [])
+
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         for k, v in list(d.items()):
@@ -98,6 +170,7 @@ class ClientProfile:
             visual_bf_label=d.get("visual_bf_label"),
             wrist_cm=d.get("wrist_cm"),
             resting_hr=d.get("resting_hr", 60),
+            measured_max_hr=d.get("measured_max_hr"),
             activity=ActivityLevel(d.get("activity", "mostly_sedentary")),
             dietary_preference=DietaryPreference(d.get("dietary_preference", "omnivore")),
             allergies=d.get("allergies", []),
@@ -112,6 +185,10 @@ class ClientProfile:
             target_weight_kg=d.get("target_weight_kg"),
             timeline_weeks=d.get("timeline_weeks", 12),
             motivation=d.get("motivation", ""),
+            medical_flags=d.get("medical_flags", {}),
+            working_weights_kg=d.get("working_weights_kg", {}),
+            plan_week=d.get("plan_week", 1),
+            meal_plan_seed=d.get("meal_plan_seed"),
         )
 
 
@@ -128,6 +205,7 @@ class TrainingPlan:
     exercise_rule: dict
     progression: ProgressionRule
     weekly_schedule: Dict[str, List[dict]]
+    volume_reconciliation: Dict[str, Any]
     cardio_zones: CardioZones
     cardio_prescription: Dict[str, str]
     warmup_protocol: List[str]
@@ -138,6 +216,7 @@ class TrainingPlan:
 class NutritionPlan:
     calories: float
     macros: Macros
+    macro_cycle: MacroCycle
     hydration: Hydration
     micronutrients: MicronutrientTargets
     meal_plan: MealPlan
@@ -152,6 +231,7 @@ class PlanRecommendation:
     archetype_signature: str
     trainee_category: TraineeProfile
     body_composition: BodyComposition
+    anthropometrics: AnthropometricIndices
     energy: EnergyExpenditure
     training: TrainingPlan
     nutrition: NutritionPlan
@@ -185,6 +265,85 @@ class Recommender:
             session=self.p.session_length,
         )
 
+    def _meal_seed(self) -> int:
+        if self.p.meal_plan_seed is not None:
+            return self.p.meal_plan_seed
+        seed_payload = {
+            "age": self.p.age,
+            "sex": self.p.sex.value,
+            "height_cm": self.p.height_cm,
+            "weight_kg": self.p.weight_kg,
+            "goal": self.p.primary_goal.value,
+            "diet": self.p.dietary_preference.value,
+            "week": self.p.plan_week,
+        }
+        digest = hashlib.sha1(json.dumps(seed_payload, sort_keys=True).encode()).hexdigest()
+        return int(digest[:8], 16)
+
+    def _load_guidance(self, ex, rep_range: str) -> Optional[Dict[str, Any]]:
+        """Return simple load guidance from optional client working weights.
+
+        `working_weights_kg` accepts keys such as squat, bench_press, deadlift,
+        overhead_press, row, pullup, or an exercise-name/key fragment.  We treat
+        the provided load as a recent hard set of ~5 reps and estimate 1RM from
+        it, then prescribe a conservative working range for the plan's reps/RIR.
+        """
+        if not self.p.working_weights_kg:
+            return None
+        aliases = {
+            "squat": ["squat", "leg_press", "lunge"],
+            "bench_press": ["bench", "push_up", "horizontal_push"],
+            "deadlift": ["deadlift", "rdl", "hinge", "hip_thrust"],
+            "overhead_press": ["overhead", "vertical_push", "pike_push"],
+            "row": ["row", "horizontal_pull"],
+            "pullup": ["pull-up", "pullup", "pulldown", "vertical_pull"],
+        }
+        haystack = " ".join([ex.name, ex.pattern, ex.primary_muscle]).lower()
+        matched_key = None
+        for key, load in self.p.working_weights_kg.items():
+            key_l = key.lower().replace(" ", "_")
+            fragments = aliases.get(key_l, [key_l.replace("_", " "), key_l])
+            if any(fragment in haystack for fragment in fragments):
+                matched_key = key
+                working_load = float(load)
+                break
+        if matched_key is None:
+            return None
+
+        est = one_rep_max(working_load, 5)
+        pct = 0.72 if "12" in rep_range or "15" in rep_range else 0.80
+        suggested = round(est.average_1rm * pct / 2.5) * 2.5
+        return {
+            "source_lift": matched_key,
+            "input_working_weight_kg": round(working_load, 1),
+            "estimated_1rm_kg": est.average_1rm,
+            "suggested_working_weight_kg": suggested,
+            "rationale": f"Estimated from {working_load:g} kg × 5; start conservatively for {rep_range} @ target RIR.",
+        }
+
+    @staticmethod
+    def _reconcile_volume(targets: Dict[str, int], schedule: Dict[str, List[dict]]) -> Dict[str, Any]:
+        actual = {muscle: 0.0 for muscle in targets}
+        for exercises in schedule.values():
+            for ex in exercises:
+                sets = float(ex.get("set_count", 3))
+                primary = ex.get("primary_muscle")
+                if primary in actual:
+                    actual[primary] += sets
+                for secondary in ex.get("secondary_muscles", []):
+                    if secondary in actual:
+                        actual[secondary] += sets * 0.5
+        actual_i = {k: int(round(v)) for k, v in actual.items()}
+        diff = {k: actual_i.get(k, 0) - target for k, target in targets.items()}
+        within = {k: abs(v) <= 1 for k, v in diff.items()}
+        return {
+            "target_sets": dict(targets),
+            "scheduled_sets": actual_i,
+            "diff_sets": diff,
+            "within_one_set": within,
+            "summary": "Schedule volume is within ±1 set for all tracked muscles." if all(within.values()) else "Schedule volume differs from target; use the diff to add/remove accessories in the next block.",
+        }
+
     def recommend(self) -> PlanRecommendation:
         p = self.p
 
@@ -194,6 +353,12 @@ class Recommender:
             bf_pct=p.body_fat_pct,
             waist_cm=p.waist_cm, neck_cm=p.neck_cm, hip_cm=p.hip_cm,
             visual_bf_label=p.visual_bf_label,
+        )
+
+        # 1b. Anthropometric health indices (WHtR, WHR, ABSI, IBW)
+        anthro = anthropometric_indices(
+            p.height_cm, p.weight_kg, p.sex,
+            waist_cm=p.waist_cm, hip_cm=p.hip_cm,
         )
 
         # 2. Somatotype inference
@@ -225,6 +390,9 @@ class Recommender:
             target_weight_kg=p.target_weight_kg,
         )
 
+        # 5b. Optional training/rest-day macro cycling for adherence
+        mc = macro_cycle(m, p.days_per_week)
+
         # 6. Hydration
         h = hydration(p.weight_kg, workout_minutes=45 * p.days_per_week, sex=p.sex)
 
@@ -244,7 +412,7 @@ class Recommender:
         dty = session_density(p.primary_goal, p.session_length)
         er = exercise_selection(p.primary_goal, p.environment)
         prog = progression_rule(p.primary_goal, p.experience)
-        cz = cardio_zones(p.age, p.resting_hr)
+        cz = cardio_zones(p.age, p.resting_hr, measured_max_hr=p.measured_max_hr)
 
         # 8. Weekly schedule
         sched_raw = weekly_split(
@@ -262,17 +430,25 @@ class Recommender:
                 )
                 rep_range = ins.primary_reps if is_compound else ins.accessory_reps
                 rir = ins.primary_rir if is_compound else ins.accessory_rir
-                day_list.append({
+                item = {
                     "name": ex.name,
                     "pattern": ex.pattern,
                     "primary_muscle": ex.primary_muscle,
+                    "secondary_muscles": ex.secondary_muscles,
+                    "set_count": 3,
                     "sets_reps": f"3 × {rep_range}",
                     "rir": rir,
                     "rest_seconds": dty.rest_seconds,
                     "equipment": ex.equipment or ["bodyweight"],
                     "cues": ex.cues[:3],
-                })
+                }
+                load = self._load_guidance(ex, rep_range)
+                if load is not None:
+                    item["load_guidance"] = load
+                day_list.append(item)
             sched[day] = day_list
+
+        volume_audit = self._reconcile_volume(wv.per_muscle_group, sched)
 
         # 9. Decision trees (nutrition)
         cuisines = cuisine_pick(p.preferred_cuisines)
@@ -287,6 +463,7 @@ class Recommender:
             preferred_cuisines=cuisines,
             include_external=True,
             include_internal=False,
+            seed=self._meal_seed(),
         )
         # Single-day plan is the first day of the same external-only weekly plan,
         # kept for backwards compatibility with callers expecting nutrition.meal_plan.
@@ -320,6 +497,24 @@ class Recommender:
         # 15. Warnings and notes
         warnings = list(ir.warnings)
         notes = list(ir.notes)
+        active_medical_flags = sorted(k for k, v in p.medical_flags.items() if v)
+        if active_medical_flags:
+            warnings.append(
+                "Medical review required before starting: "
+                + ", ".join(active_medical_flags).replace("_", " ")
+                + ". This plan is educational and should be cleared by a qualified clinician."
+            )
+        if not all(volume_audit["within_one_set"].values()):
+            largest = sorted(
+                volume_audit["diff_sets"].items(),
+                key=lambda kv: abs(kv[1]),
+                reverse=True,
+            )[:3]
+            notes.append(
+                "Weekly volume audit: "
+                + ", ".join(f"{muscle} {diff:+d} sets" for muscle, diff in largest)
+                + ". Adjust accessories if recovery or progress indicates a mismatch."
+            )
         tree_strategy, tree_reason = recommend_phase_strategy(
             bc.body_fat_pct or 20, p.experience, p.sex, bc.bmi, p.primary_goal,
         )
@@ -346,6 +541,7 @@ class Recommender:
             archetype_signature=sig.code(),
             trainee_category=trainee,
             body_composition=bc,
+            anthropometrics=anthro,
             energy=ee,
             training=TrainingPlan(
                 split=ts,
@@ -360,6 +556,7 @@ class Recommender:
                 },
                 progression=prog,
                 weekly_schedule=sched,
+                volume_reconciliation=volume_audit,
                 cardio_zones=cz,
                 cardio_prescription=cardio_rx,
                 warmup_protocol=self._warmup_protocol(),
@@ -368,6 +565,7 @@ class Recommender:
             nutrition=NutritionPlan(
                 calories=ee.calorie_target,
                 macros=m,
+                macro_cycle=mc,
                 hydration=h,
                 micronutrients=micros,
                 meal_plan=day_plan,

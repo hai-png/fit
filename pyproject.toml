@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fitness-engine-fit"
+version = "2.2.1"
+description = "Evidence-based deterministic training and meal plan generator"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Educational/coaching use only; not medical advice"}
+authors = [{name = "hai-png/fit contributors"}]
+keywords = ["fitness", "nutrition", "meal-planning", "training"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.scripts]
+fitness-engine = "fitness_engine.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["fitness_engine*"]
+
+[tool.setuptools.package-data]
+fitness_engine = []
+
+[tool.ruff]
+line-length = 120

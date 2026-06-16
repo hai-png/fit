@@ -6,7 +6,7 @@ import argparse
 import json
 import re
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, List
 
 
 def clean(s: str) -> str:

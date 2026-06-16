@@ -3,7 +3,9 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Generated output (can be regenerated with run_all.sh)
+# Generated output can be regenerated with run_all.sh.
+# The current output/ directory is intentionally kept as checked-in examples;
+# uncomment the next line if using this repository for local/private runs.
 # output/
 
 # OS

@@ -24,7 +24,7 @@ all downstream decisions.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from itertools import product
 from typing import Dict, List, Optional

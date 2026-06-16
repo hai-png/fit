@@ -83,12 +83,12 @@ class ScrapedExercise:
 ENVIRONMENT_EQUIPMENT: Dict[TrainingEnvironment, List[str]] = {
     TrainingEnvironment.HOME_BODYWEIGHT: ["bodyweight"],  # Bodyweight only
     TrainingEnvironment.HOME_GYM: [
-        "dumbbells", "bands", "bench", "pullup_bar", "kettlebells",
+        "dumbbells", "bands", "bench", "pullup_bar", "kettlebell",
         "bodyweight",  # Home gym also has bodyweight exercises
     ],
     TrainingEnvironment.GYM_FULL: [
         "barbell", "bench", "dumbbells", "machine", "cardio_machine",
-        "kettlebells", "pullup_bar", "trap_bar", "bodyweight",
+        "kettlebell", "bands", "pullup_bar", "trap_bar", "bodyweight",
     ],
 }
 
@@ -106,8 +106,8 @@ EQUIPMENT_MAPPING = {
     "bodyweight": [],
     "ez_bar": "ez_bar",
     "bands": "bands",
-    "kettlebell": "kettlebells",
-    "kettlebells": "kettlebells",
+    "kettlebell": "kettlebell",
+    "kettlebells": "kettlebell",
     "trap_bar": "trap_bar",
     "exercise_ball": "exercise_ball",
 }
@@ -192,10 +192,27 @@ class ExerciseDatabase:
         self.filters = data.get('filter_categories', {})
     
     def _build_fallback_database(self):
-        """Build minimal database when JSON not available."""
-        # This will be populated from the built-in EXERCISE_LIBRARY
-        # when the full database isn't available
-        pass
+        """Build minimal database from the built-in exercise library."""
+        from .exercise_plans import EXERCISE_LIBRARY
+
+        self.metadata = {"source": "built_in_fallback", "exercise_count": len(EXERCISE_LIBRARY)}
+        self.movement_patterns = {}
+        self.filters = {}
+        self.exercises = {
+            key: ScrapedExercise(
+                id=key,
+                name=ex.name,
+                pattern=ex.pattern,
+                primary_muscle=ex.primary_muscle,
+                secondary_muscles=ex.secondary_muscles,
+                equipment=ex.equipment,
+                difficulty=ex.difficulty,
+                regression=ex.regression,
+                progression=ex.progression,
+                tags=ex.tags,
+            )
+            for key, ex in EXERCISE_LIBRARY.items()
+        }
     
     def get_all_exercises(self) -> List[ScrapedExercise]:
         """Return all exercises as a list."""
@@ -387,9 +404,8 @@ class ExerciseDatabase:
         
         return selected
     
-    def to_engine_format(self) -> Dict[str, 'Exercise']:
+    def to_engine_format(self) -> Dict[str, object]:
         """Convert all scraped exercises to engine Exercise format."""
-        from .exercise_plans import Exercise
         
         engine_exercises = {}
         for ex_id, ex in self.exercises.items():

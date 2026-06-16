@@ -624,12 +624,15 @@ def one_rep_max(weight: float, reps: int) -> StrengthEstimate:
 # --------------------------------------------------------------------------- #
 # Cardiovascular zones                                                        #
 # --------------------------------------------------------------------------- #
-def cardio_zones(age: int, resting_hr: int = 60) -> CardioZones:
+def cardio_zones(age: int, resting_hr: int = 60, measured_max_hr: Optional[int] = None) -> CardioZones:
     hr_max = 220 - age
-    hr_max_tanaka = 208 - (0.7 * age)
+    hr_max_tanaka = measured_max_hr if measured_max_hr is not None else 208 - (0.7 * age)
     hrr = hr_max_tanaka - resting_hr
-    pct = lambda lo, hi: (round(resting_hr + hrr * lo, 0),
-                          round(resting_hr + hrr * hi, 0))
+    def pct(lo: float, hi: float) -> tuple[float, float]:
+        return (
+            round(resting_hr + hrr * lo, 0),
+            round(resting_hr + hrr * hi, 0),
+        )
     return CardioZones(
         age=age, hr_max_simple=hr_max, hr_max_tanaka=round(hr_max_tanaka, 0),
         zones={
@@ -1174,7 +1177,6 @@ def adjust_macros_for_calorie_change(
     fat_delta_g = round((fat_kcal / 9) / 5) * 5
     carbs = max(0.0, current.carbs_g + carb_delta_g)
     fat = max(0.0, current.fat_g + fat_delta_g)
-    calories = current.protein_g * 4 + carbs * 4 + fat * 9
     return MacroAdjustment(
         calories_delta=calorie_delta, protein_g=current.protein_g,
         carbs_g=round(carbs, 1), fat_g=round(fat, 1),
@@ -1256,19 +1258,19 @@ def adaptive_tdee(
     rolling average weights, then blends observed TDEE with the formula estimate
     according to data sufficiency.
     """
-    complete = [l for l in logs if l.complete and l.calories > 800 and l.weight_kg > 0]
+    complete = [log for log in logs if log.complete and log.calories > 800 and log.weight_kg > 0]
     if len(complete) < 14:
         return AdaptiveTDEEEstimate(formula_tdee, None, round(formula_tdee, 1), "low", len(complete), len(logs)-len(complete), None, ["Need at least 14 complete days; 28+ is preferable."])
 
-    cals = sorted(l.calories for l in complete)
+    cals = sorted(log.calories for log in complete)
     median = cals[len(cals)//2]
-    filtered = [l for l in complete if 0.5 * median <= l.calories <= 1.5 * median]
+    filtered = [log for log in complete if 0.5 * median <= log.calories <= 1.5 * median]
     excluded = len(logs) - len(filtered)
     n = min(smoothing_days, len(filtered)//2)
-    start_w = sum(l.weight_kg for l in filtered[:n]) / n
-    end_w = sum(l.weight_kg for l in filtered[-n:]) / n
+    start_w = sum(log.weight_kg for log in filtered[:n]) / n
+    end_w = sum(log.weight_kg for log in filtered[-n:]) / n
     days = max(1, filtered[-1].day - filtered[0].day + 1)
-    avg_cal = sum(l.calories for l in filtered) / len(filtered)
+    avg_cal = sum(log.calories for log in filtered) / len(filtered)
     delta_kg = end_w - start_w
     # 7700 kcal/kg is acceptable for retrospective TDEE from trend data; do not
     # use it as a promise of future timelines.

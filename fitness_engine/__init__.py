@@ -77,6 +77,9 @@ from .recommender import (
     ClientProfile, PlanRecommendation, TrainingPlan, NutritionPlan,
     Recommender,
 )
+from .persistence import (
+    init_db, store_client, add_weight, add_adherence, client_summary,
+)
 
 __all__ = [
     # archetypes
@@ -135,6 +138,8 @@ __all__ = [
     # main
     "ClientProfile", "PlanRecommendation", "TrainingPlan", "NutritionPlan",
     "Recommender",
+    # persistence
+    "init_db", "store_client", "add_weight", "add_adherence", "client_summary",
 ]
 
-__version__ = "2.1.0"
+__version__ = "2.2.1"

@@ -18,18 +18,42 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Iterable, List, Optional
 
 BAD_INGREDIENT_PATTERNS = re.compile(
     r"\b(step\s*\d+|cook time|prep time|yield:|kitchen needs|kitchen tools|tools|too busy|meal prep resources|calorie goals|want to|get more out|recipe$|print|share|subscribe)\b",
     re.I,
 )
 DESSERT_SNACK = [
-    "shake", "smoothie", "bar", "cookie", "brownie", "muffin", "cupcake",
-    "donut", "mug cake", "truffle", "bark", "pudding", "ice cream", "soft serve",
-    "sauce", "dressing", "salsa", "bites", "deviled eggs",
+    "shake",
+    "smoothie",
+    "bar",
+    "cookie",
+    "brownie",
+    "muffin",
+    "cupcake",
+    "donut",
+    "mug cake",
+    "truffle",
+    "bark",
+    "pudding",
+    "ice cream",
+    "soft serve",
+    "sauce",
+    "dressing",
+    "salsa",
+    "bites",
+    "deviled eggs",
 ]
-BREAKFAST_WORDS = ["breakfast", "pancake", "oatmeal", "omelette", "waffle", "french toast", "crepe", "scrambled egg"]
+BREAKFAST_WORDS = [
+    "breakfast",
+    "pancake",
+    "oatmeal",
+    "omelette",
+    "waffle",
+    "french toast",
+    "crepe",
+    "scrambled egg"]
 
 
 def clean_text(s: object) -> str:
@@ -54,8 +78,12 @@ def sanitize_ingredients(items: Iterable[object]) -> List[str]:
         if not x:
             continue
         if BAD_INGREDIENT_PATTERNS.search(x):
-            # Page artifact; stop if this looks like the beginning of article body.
-            if re.search(r"\b(step\s*\d+|kitchen needs|kitchen tools|tools|cook time|prep time|yield:)\b", x, re.I):
+            # Page artifact; stop if this looks like the beginning of article
+            # body.
+            if re.search(
+                r"\b(step\s*\d+|kitchen needs|kitchen tools|tools|cook time|prep time|yield:)\b",
+                x,
+                    re.I):
                 break
             continue
         if len(x) > 180:
@@ -66,11 +94,13 @@ def sanitize_ingredients(items: Iterable[object]) -> List[str]:
         if len(out) >= 28:
             break
     # de-dupe preserving order
-    seen = set(); dedup = []
+    seen = set()
+    dedup = []
     for x in out:
         key = x.lower()
         if key not in seen:
-            seen.add(key); dedup.append(x)
+            seen.add(key)
+            dedup.append(x)
     return dedup
 
 
@@ -80,9 +110,16 @@ def sanitize_instructions(items: Iterable[object]) -> List[str]:
         x = clean_text(raw)
         if not x:
             continue
-        if re.search(r"\b(calorie goals|free meal prep toolkit|subscribe|printed|share on|facebook|pinterest|too busy)\b", x, re.I):
+        if re.search(
+            r"\b(calorie goals|free meal prep toolkit|subscribe|printed|share on|facebook|pinterest|too busy)\b",
+            x,
+                re.I):
             continue
-        if x.lower() in {"instructions", "cooking instructions", "directions", "method"}:
+        if x.lower() in {
+            "instructions",
+            "cooking instructions",
+            "directions",
+                "method"}:
             continue
         if len(x) > 500:
             x = x[:497].rstrip() + "..."
@@ -115,14 +152,18 @@ def estimate_fiber(ingredients: List[str], carbs_g: float) -> float:
 
 def macro_sane(r: dict) -> bool:
     try:
-        cal = float(r.get("calories")); p = float(r.get("protein_g")); c = float(r.get("carbs_g")); f = float(r.get("fat_g"))
+        cal = float(r.get("calories"))
+        p = float(r.get("protein_g"))
+        c = float(r.get("carbs_g"))
+        f = float(r.get("fat_g"))
     except (TypeError, ValueError):
         return False
     return 40 <= cal <= 1600 and 0 <= p <= 180 and 0 <= c <= 300 and 0 <= f <= 160
 
 
 def canonical_id(source: str, title: str, url: str) -> str:
-    h = hashlib.sha1(f"{source}|{title}|{url}".encode()).hexdigest()[:10].upper()
+    h = hashlib.sha1(f"{source}|{title}|{url}".encode()
+                     ).hexdigest()[:10].upper()
     prefix = "MS" if source == "muscleandstrength" else "TR" if source == "trifecta" else "EX"
     return f"{prefix}-{h}"
 
@@ -140,9 +181,15 @@ def normalize_recipe(r: dict) -> Optional[dict]:
     # reject remaining contaminated ingredients
     if any(BAD_INGREDIENT_PATTERNS.search(x) for x in ingredients):
         return None
-    tags = sorted(t for t in set(r.get("tags") or []) if not str(t).startswith(("source:", "confidence:")))
+    tags = sorted(
+        t for t in set(
+            r.get("tags") or []) if not str(t).startswith(
+            ("source:", "confidence:")))
     slot = normalized_slot(title, r.get("slot") or "")
-    cal = float(r["calories"]); p = float(r["protein_g"]); c = float(r["carbs_g"]); f = float(r["fat_g"])
+    cal = float(r["calories"])
+    p = float(r["protein_g"])
+    c = float(r["carbs_g"])
+    f = float(r["fat_g"])
     fibre = r.get("fibre_g")
     estimated_fibre = False
     try:
@@ -164,18 +211,27 @@ def normalize_recipe(r: dict) -> Optional[dict]:
     if len(instructions) < 3:
         quality_score -= 5
     return {
-        "id": canonical_id(source, title, url),
+        "id": canonical_id(
+            source,
+            title,
+            url),
         "source": source,
         "source_url": url,
         "title": title,
-        "description": clean_text(r.get("summary")),
+        "description": clean_text(
+            r.get("summary")),
         "slot": slot,
-        "cuisine": clean_text(r.get("cuisine")) or "american",
+        "cuisine": clean_text(
+            r.get("cuisine")) or "american",
         "diet_tags": tags,
-        "goal_tags": r.get("fitness_goal_tags", []),
+        "goal_tags": r.get(
+            "fitness_goal_tags",
+            []),
         "prep_time_min": r.get("prep_minutes"),
         "cook_time_min": r.get("cook_minutes"),
-        "total_time_min": (r.get("prep_minutes") or 0) + (r.get("cook_minutes") or 0) if r.get("prep_minutes") is not None or r.get("cook_minutes") is not None else None,
+        "total_time_min": (
+            r.get("prep_minutes") or 0) + (
+            r.get("cook_minutes") or 0) if r.get("prep_minutes") is not None or r.get("cook_minutes") is not None else None,
         "servings": r.get("servings"),
         "difficulty": r.get("difficulty"),
         "nutrition_per_serving": {
@@ -186,9 +242,15 @@ def normalize_recipe(r: dict) -> Optional[dict]:
             "fiber_g": fibre,
         },
         "macro_ratio": {
-            "protein_pct": round(p * 4 / cal * 100, 1),
-            "carbs_pct": round(c * 4 / cal * 100, 1),
-            "fat_pct": round(f * 9 / cal * 100, 1),
+            "protein_pct": round(
+                p * 4 / cal * 100,
+                1),
+            "carbs_pct": round(
+                c * 4 / cal * 100,
+                1),
+            "fat_pct": round(
+                f * 9 / cal * 100,
+                1),
         },
         "ingredients": ingredients,
         "instructions": instructions,
@@ -218,7 +280,8 @@ def build(inputs: List[Path], out_path: Path) -> dict:
         for r in load_recipes(path):
             nr = normalize_recipe(r)
             if nr is None:
-                rejected.append({"source_file": str(path), "title": r.get("title"), "reason": "failed_quality_or_schema"})
+                rejected.append({"source_file": str(path), "title": r.get(
+                    "title"), "reason": "failed_quality_or_schema"})
                 continue
             key = (nr["source"], nr["title"].lower())
             if key in seen:
@@ -234,7 +297,8 @@ def build(inputs: List[Path], out_path: Path) -> dict:
         "rejected": len(rejected),
     }
     for r in recipes:
-        stats["by_source"][r["source"]] = stats["by_source"].get(r["source"], 0) + 1
+        stats["by_source"][r["source"]] = stats["by_source"].get(
+            r["source"], 0) + 1
         stats["by_slot"][r["slot"]] = stats["by_slot"].get(r["slot"], 0) + 1
         for t in r["diet_tags"]:
             stats["by_diet_tag"][t] = stats["by_diet_tag"].get(t, 0) + 1
@@ -252,8 +316,16 @@ def build(inputs: List[Path], out_path: Path) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default="data/recipes/unified_external_recipes.json")
-    ap.add_argument("inputs", nargs="*", default=["data/recipes/normalized/muscleandstrength_recipes.json", "data/recipes/normalized/trifecta_recipes.json", "data/recipes/normalized/ethiopian_recipes.json"])
+    ap.add_argument(
+        "--out",
+        default="data/recipes/unified_external_recipes.json")
+    ap.add_argument(
+        "inputs",
+        nargs="*",
+        default=[
+            "data/recipes/normalized/muscleandstrength_recipes.json",
+            "data/recipes/normalized/trifecta_recipes.json",
+            "data/recipes/normalized/ethiopian_recipes.json"])
     args = ap.parse_args()
     payload = build([Path(x) for x in args.inputs], Path(args.out))
     print(json.dumps(payload["stats"], indent=2, ensure_ascii=False))

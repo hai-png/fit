@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Sequence
+from typing import Dict, List
 
-from .archetypes import DietaryPreference
 from .meal_plans import DIET_COMPATIBILITY, MealItem
 from .seven_day_meal_planner import SevenDayMealPlan
 
