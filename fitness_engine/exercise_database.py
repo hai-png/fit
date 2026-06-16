@@ -1,0 +1,513 @@
+"""
+exercise_database.py
+=====================
+
+Integration module for the comprehensive exercise database scraped from
+muscleandstrength.com. Provides utilities to:
+- Load and filter the exercise database
+- Convert between database format and engine Exercise format
+- Build environment-specific exercise libraries
+- Query exercises by pattern, muscle, equipment, difficulty
+
+Usage:
+    from exercise_database import ExerciseDatabase
+    
+    db = ExerciseDatabase()
+    exercises = db.filter_by_equipment(['dumbbells', 'barbell'])
+    exercises = db.filter_by_muscle('chest')
+    exercises = db.filter_by_pattern('horizontal_push')
+    
+    # Get exercises for specific environment
+    home_exercises = db.get_exercises_for_environment('home_bodyweight')
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional, Set
+
+# Import engine components
+from .archetypes import TrainingEnvironment
+
+
+# --------------------------------------------------------------------------- #
+# Data classes for scraped exercise format
+# --------------------------------------------------------------------------- #
+
+@dataclass
+class ScrapedExercise:
+    """Extended exercise representation from scraped database."""
+    id: str
+    name: str
+    pattern: str
+    primary_muscle: str
+    secondary_muscles: List[str] = field(default_factory=list)
+    equipment: List[str] = field(default_factory=list)
+    difficulty: int = 1
+    mechanics: str = "compound"
+    experience_level: str = "beginner"
+    views: int = 0
+    comments: int = 0
+    source_url: str = ""
+    regression: Optional[str] = None
+    progression: Optional[str] = None
+    alternative_names: List[str] = field(default_factory=list)
+    tags: List[str] = field(default_factory=list)
+    best_for: List[str] = field(default_factory=list)
+    
+    def to_engine_exercise(self):
+        """Convert to engine Exercise format."""
+        from .exercise_plans import Exercise
+        return Exercise(
+            name=self.name,
+            pattern=self.pattern,
+            primary_muscle=self.primary_muscle,
+            secondary_muscles=self.secondary_muscles,
+            equipment=self.equipment,
+            difficulty=self.difficulty,
+            regression=self.regression,
+            progression=self.progression,
+            cues=[],  # Cues not in scraped data
+            contraindications=[],  # Not scraped
+            tags=self.tags,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Environment → Equipment mapping (from exercise_plans.py)
+# --------------------------------------------------------------------------- #
+
+ENVIRONMENT_EQUIPMENT: Dict[TrainingEnvironment, List[str]] = {
+    TrainingEnvironment.HOME_BODYWEIGHT: ["bodyweight"],  # Bodyweight only
+    TrainingEnvironment.HOME_GYM: [
+        "dumbbells", "bands", "bench", "pullup_bar", "kettlebells",
+        "bodyweight",  # Home gym also has bodyweight exercises
+    ],
+    TrainingEnvironment.GYM_FULL: [
+        "barbell", "bench", "dumbbells", "machine", "cardio_machine",
+        "kettlebells", "pullup_bar", "trap_bar", "bodyweight",
+    ],
+}
+
+
+# --------------------------------------------------------------------------- #
+# Equipment name mapping (scraped → engine)
+# --------------------------------------------------------------------------- #
+
+EQUIPMENT_MAPPING = {
+    "barbell": "barbell",
+    "dumbbell": "dumbbells",
+    "dumbbells": "dumbbells",
+    "cable": "machine",
+    "machine": "machine",
+    "bodyweight": [],
+    "ez_bar": "ez_bar",
+    "bands": "bands",
+    "kettlebell": "kettlebells",
+    "kettlebells": "kettlebells",
+    "trap_bar": "trap_bar",
+    "exercise_ball": "exercise_ball",
+}
+
+
+# --------------------------------------------------------------------------- #
+# Movement pattern mapping
+# --------------------------------------------------------------------------- #
+
+PATTERN_MAPPING = {
+    "horizontal_push": "horizontal_push",
+    "vertical_push": "vertical_push",
+    "horizontal_pull": "horizontal_pull",
+    "vertical_pull": "vertical_pull",
+    "squat": "squat",
+    "hinge": "hinge",
+    "single_leg": "single_leg",
+    "isolation": "isolation",
+    "core": "core",
+    "carry": "carry",
+    "cardio": "cardio",
+}
+
+
+# --------------------------------------------------------------------------- #
+# Muscle group mapping
+# --------------------------------------------------------------------------- #
+
+MUSCLE_MAPPING = {
+    "chest": "chest",
+    "shoulders": "shoulders",
+    "triceps": "triceps",
+    "biceps": "biceps",
+    "back": "back",
+    "lats": "lats",
+    "traps": "traps",
+    "quads": "quads",
+    "hamstrings": "hamstrings",
+    "glutes": "glutes",
+    "calves": "calves",
+    "abs": "abs",
+    "obliques": "obliques",
+    "forearms": "forearms",
+    "core": "core",
+    "cardio": "cardio",
+}
+
+
+# --------------------------------------------------------------------------- #
+# Exercise Database Class
+# --------------------------------------------------------------------------- #
+
+class ExerciseDatabase:
+    """Comprehensive exercise database from scraped M&S data."""
+    
+    def __init__(self, db_path: Optional[str] = None):
+        """Load the exercise database from JSON file."""
+        if db_path is None:
+            db_path = Path(__file__).parent.parent / "data" / "exercises" / "comprehensive_exercise_database.json"
+        
+        self._load_database(db_path)
+    
+    def _load_database(self, path: Path):
+        """Load and parse the exercise database."""
+        if not os.path.exists(path):
+            # Fall back to built-in exercises
+            self.exercises: Dict[str, ScrapedExercise] = {}
+            self._build_fallback_database()
+            return
+        
+        with open(path, 'r') as f:
+            data = json.load(f)
+        
+        self.metadata = data.get('metadata', {})
+        self.movement_patterns = data.get('movement_patterns', {})
+        
+        self.exercises: Dict[str, ScrapedExercise] = {}
+        for ex_data in data.get('exercises', []):
+            ex = ScrapedExercise(**ex_data)
+            self.exercises[ex.id] = ex
+        
+        self.filters = data.get('filter_categories', {})
+    
+    def _build_fallback_database(self):
+        """Build minimal database when JSON not available."""
+        # This will be populated from the built-in EXERCISE_LIBRARY
+        # when the full database isn't available
+        pass
+    
+    def get_all_exercises(self) -> List[ScrapedExercise]:
+        """Return all exercises as a list."""
+        return list(self.exercises.values())
+    
+    def get_exercise(self, exercise_id: str) -> Optional[ScrapedExercise]:
+        """Get a specific exercise by ID."""
+        return self.exercises.get(exercise_id)
+    
+    def filter_by_muscle(self, muscle: str) -> List[ScrapedExercise]:
+        """Filter exercises by primary muscle group."""
+        muscle = muscle.lower()
+        results = []
+        for ex in self.exercises.values():
+            if ex.primary_muscle.lower() == muscle:
+                results.append(ex)
+            elif muscle in ex.secondary_muscles:
+                results.append(ex)
+        return results
+    
+    def filter_by_pattern(self, pattern: str) -> List[ScrapedExercise]:
+        """Filter exercises by movement pattern."""
+        pattern = pattern.lower()
+        return [
+            ex for ex in self.exercises.values()
+            if ex.pattern.lower() == pattern
+        ]
+    
+    def filter_by_equipment(self, equipment: List[str]) -> List[ScrapedExercise]:
+        """Filter exercises by available equipment."""
+        available = set(equipment)
+        results = []
+        for ex in self.exercises.values():
+            if not ex.equipment:  # Bodyweight exercises
+                results.append(ex)
+            elif all(eq in available for eq in ex.equipment):
+                results.append(ex)
+        return results
+    
+    def filter_by_difficulty(self, max_difficulty: int) -> List[ScrapedExercise]:
+        """Filter exercises by maximum difficulty level."""
+        return [
+            ex for ex in self.exercises.values()
+            if ex.difficulty <= max_difficulty
+        ]
+    
+    def filter_by_mechanics(self, mechanics: str) -> List[ScrapedExercise]:
+        """Filter exercises by mechanics (compound/isolation)."""
+        mechanics = mechanics.lower()
+        return [
+            ex for ex in self.exercises.values()
+            if ex.mechanics.lower() == mechanics
+        ]
+    
+    def get_exercises_for_environment(
+        self,
+        environment: TrainingEnvironment,
+        max_difficulty: int = 5,
+    ) -> List[ScrapedExercise]:
+        """Get all exercises suitable for a training environment."""
+        available_equipment = ENVIRONMENT_EQUIPMENT.get(environment, [])
+        results = []
+        
+        for ex in self.exercises.values():
+            if ex.difficulty > max_difficulty:
+                continue
+            
+            # Check if exercise is feasible
+            if self._equipment_feasible(ex.equipment, available_equipment):
+                results.append(ex)
+        
+        # Sort by popularity (views)
+        results.sort(key=lambda x: x.views, reverse=True)
+        return results
+    
+    def _equipment_feasible(
+        self, 
+        required_equipment: List[str], 
+        available: List[str]
+    ) -> bool:
+        """Check if exercise equipment requirements are met."""
+        # Handle bodyweight exercises (empty list or "bodyweight" string)
+        if not required_equipment or required_equipment == ['bodyweight']:
+            return True  # Bodyweight exercises always available
+        return all(eq in available for eq in required_equipment)
+    
+    def search(self, query: str) -> List[ScrapedExercise]:
+        """Search exercises by name or alternative names."""
+        query = query.lower()
+        results = []
+        for ex in self.exercises.values():
+            if query in ex.name.lower():
+                results.append(ex)
+            elif any(query in alt.lower() for alt in ex.alternative_names):
+                results.append(ex)
+            elif any(query in tag.lower() for tag in ex.tags):
+                results.append(ex)
+        return results
+    
+    def get_regression_chain(self, exercise_id: str) -> List[ScrapedExercise]:
+        """Get the full regression chain for an exercise."""
+        chain = []
+        current_id = exercise_id
+        
+        while current_id:
+            ex = self.exercises.get(current_id)
+            if not ex:
+                break
+            chain.append(ex)
+            current_id = ex.regression
+        
+        return chain
+    
+    def get_progression_chain(self, exercise_id: str) -> List[ScrapedExercise]:
+        """Get the full progression chain for an exercise."""
+        chain = []
+        current_id = exercise_id
+        
+        while current_id:
+            ex = self.exercises.get(current_id)
+            if not ex:
+                break
+            chain.append(ex)
+            current_id = ex.progression
+        
+        return chain
+    
+    def get_popular_exercises(
+        self, 
+        limit: int = 10,
+        pattern: Optional[str] = None,
+        muscle: Optional[str] = None,
+    ) -> List[ScrapedExercise]:
+        """Get most popular exercises, optionally filtered."""
+        exercises = self.get_all_exercises()
+        
+        if pattern:
+            exercises = [ex for ex in exercises if ex.pattern == pattern]
+        if muscle:
+            exercises = [
+                ex for ex in exercises 
+                if ex.primary_muscle == muscle or muscle in ex.secondary_muscles
+            ]
+        
+        exercises.sort(key=lambda x: x.views, reverse=True)
+        return exercises[:limit]
+    
+    def get_compound_exercises_for_environment(
+        self,
+        environment: TrainingEnvironment,
+    ) -> Dict[str, List[ScrapedExercise]]:
+        """Get compound exercises grouped by pattern for an environment."""
+        exercises = self.get_exercises_for_environment(environment, max_difficulty=4)
+        exercises = [ex for ex in exercises if ex.mechanics == "compound"]
+        
+        grouped: Dict[str, List[ScrapedExercise]] = {}
+        for ex in exercises:
+            if ex.pattern not in grouped:
+                grouped[ex.pattern] = []
+            grouped[ex.pattern].append(ex)
+        
+        return grouped
+    
+    def build_session_exercises(
+        self,
+        environment: TrainingEnvironment,
+        patterns: List[str],
+        max_difficulty: int = 4,
+        exclude_ids: Optional[Set[str]] = None,
+    ) -> List[ScrapedExercise]:
+        """Build a training session by selecting exercises for each pattern."""
+        exclude_ids = exclude_ids or set()
+        selected = []
+        
+        for pattern in patterns:
+            candidates = [
+                ex for ex in self.exercises.values()
+                if ex.pattern == pattern
+                and ex.difficulty <= max_difficulty
+                and self._equipment_feasible(ex.equipment, ENVIRONMENT_EQUIPMENT.get(environment, []))
+                and ex.id not in exclude_ids
+            ]
+            
+            if candidates:
+                # Sort by difficulty (harder first), then by popularity
+                candidates.sort(key=lambda x: (-x.difficulty, -x.views))
+                selected.append(candidates[0])
+                exclude_ids.add(candidates[0].id)
+        
+        return selected
+    
+    def to_engine_format(self) -> Dict[str, 'Exercise']:
+        """Convert all scraped exercises to engine Exercise format."""
+        from .exercise_plans import Exercise
+        
+        engine_exercises = {}
+        for ex_id, ex in self.exercises.items():
+            engine_exercises[ex_id] = ex.to_engine_exercise()
+        
+        return engine_exercises
+    
+    def generate_report(self) -> Dict:
+        """Generate a summary report of the database."""
+        patterns = {}
+        muscles = {}
+        equipment_counts = {}
+        
+        for ex in self.exercises.values():
+            patterns[ex.pattern] = patterns.get(ex.pattern, 0) + 1
+            muscles[ex.primary_muscle] = muscles.get(ex.primary_muscle, 0) + 1
+            
+            for eq in ex.equipment:
+                equipment_counts[eq] = equipment_counts.get(eq, 0) + 1
+        
+        return {
+            "total_exercises": len(self.exercises),
+            "patterns": patterns,
+            "muscle_groups": muscles,
+            "equipment_types": equipment_counts,
+            "total_views": sum(ex.views for ex in self.exercises.values()),
+            "total_comments": sum(ex.comments for ex in self.exercises.values()),
+        }
+    
+    def export_to_json(self, path: str):
+        """Export filtered exercises to JSON file."""
+        data = {
+            "metadata": self.metadata,
+            "exercises": [
+                {
+                    "id": ex.id,
+                    "name": ex.name,
+                    "pattern": ex.pattern,
+                    "primary_muscle": ex.primary_muscle,
+                    "equipment": ex.equipment,
+                    "difficulty": ex.difficulty,
+                }
+                for ex in self.exercises.values()
+            ],
+        }
+        
+        with open(path, 'w') as f:
+            json.dump(data, f, indent=2)
+
+
+# --------------------------------------------------------------------------- #
+# Convenience functions
+# --------------------------------------------------------------------------- #
+
+def get_database() -> ExerciseDatabase:
+    """Get a singleton instance of the exercise database."""
+    if not hasattr(get_database, '_instance'):
+        get_database._instance = ExerciseDatabase()
+    return get_database._instance
+
+
+def get_exercises_for_goal(
+    environment: TrainingEnvironment,
+    goal: str,
+    max_per_pattern: int = 2,
+) -> List[ScrapedExercise]:
+    """Get exercises optimized for a specific goal archetype."""
+    db = get_database()
+    exercises = db.get_exercises_for_environment(environment)
+    
+    # Filter by goal alignment
+    if goal in ['fat_loss', 'general_health']:
+        # Prefer compound exercises, bodyweight-friendly
+        exercises = [ex for ex in exercises if ex.mechanics == 'compound']
+        exercises.sort(key=lambda x: x.difficulty)
+    elif goal == 'muscle_gain':
+        # Prefer high-view compound exercises
+        exercises.sort(key=lambda x: x.views, reverse=True)
+    elif goal == 'strength':
+        # Prefer lower difficulty compound lifts
+        exercises = [ex for ex in exercises if ex.difficulty >= 3]
+        exercises = [ex for ex in exercises if ex.mechanics == 'compound']
+    
+    return exercises[:max_per_pattern * 6]  # ~6 patterns × 2 exercises
+
+
+# --------------------------------------------------------------------------- #
+# Main execution for testing
+# --------------------------------------------------------------------------- #
+
+if __name__ == "__main__":
+    db = ExerciseDatabase()
+    report = db.generate_report()
+    
+    print("=" * 60)
+    print("EXERCISE DATABASE REPORT")
+    print("=" * 60)
+    print(f"Total Exercises: {report['total_exercises']}")
+    print(f"Total Views: {report['total_views']:,}")
+    print(f"Total Comments: {report['total_comments']:,}")
+    print()
+    
+    print("By Movement Pattern:")
+    for pattern, count in sorted(report['patterns'].items(), key=lambda x: -x[1]):
+        print(f"  {pattern}: {count}")
+    
+    print()
+    print("By Muscle Group:")
+    for muscle, count in sorted(report['muscle_groups'].items(), key=lambda x: -x[1]):
+        print(f"  {muscle}: {count}")
+    
+    print()
+    print("Top 10 Most Viewed Exercises:")
+    for ex in db.get_popular_exercises(10):
+        print(f"  {ex.name}: {ex.views:,} views")
+    
+    print()
+    print("Sample: Chest Exercises for Home Gym:")
+    chest_exercises = db.filter_by_muscle('chest')
+    for ex in chest_exercises[:5]:
+        print(f"  {ex.name} (Difficulty: {ex.difficulty}, Equipment: {ex.equipment})")

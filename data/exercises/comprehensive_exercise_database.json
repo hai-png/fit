@@ -1,0 +1,2013 @@
+{
+  "metadata": {
+    "source": "https://www.muscleandstrength.com/exercises",
+    "total_exercises": 100,
+    "scraped_date": "2026-06-16",
+    "version": "1.0"
+  },
+  "movement_patterns": {
+    "horizontal_push": {
+      "name": "Horizontal Push",
+      "description": "Pushing movements perpendicular to body axis",
+      "muscle_groups": [
+        "chest",
+        "shoulders",
+        "triceps"
+      ]
+    },
+    "vertical_push": {
+      "name": "Vertical Push",
+      "description": "Overhead pushing movements",
+      "muscle_groups": [
+        "shoulders",
+        "triceps"
+      ]
+    },
+    "horizontal_pull": {
+      "name": "Horizontal Pull",
+      "description": "Pulling movements perpendicular to body axis",
+      "muscle_groups": [
+        "back",
+        "biceps"
+      ]
+    },
+    "vertical_pull": {
+      "name": "Vertical Pull",
+      "description": "Pulling movements parallel to body axis",
+      "muscle_groups": [
+        "lats",
+        "biceps"
+      ]
+    },
+    "squat": {
+      "name": "Squat",
+      "description": "Knee-dominant lower body movement",
+      "muscle_groups": [
+        "quads",
+        "glutes",
+        "core"
+      ]
+    },
+    "hinge": {
+      "name": "Hinge",
+      "description": "Hip-dominant movement with minimal knee flexion",
+      "muscle_groups": [
+        "hamstrings",
+        "glutes",
+        "back"
+      ]
+    },
+    "single_leg": {
+      "name": "Single Leg",
+      "description": "Unilateral lower body movements",
+      "muscle_groups": [
+        "quads",
+        "glutes",
+        "hamstrings"
+      ]
+    },
+    "isolation": {
+      "name": "Isolation",
+      "description": "Single joint movements",
+      "muscle_groups": [
+        "various"
+      ]
+    },
+    "core": {
+      "name": "Core",
+      "description": "Abdominal and core stabilization",
+      "muscle_groups": [
+        "abs",
+        "obliques"
+      ]
+    },
+    "carry": {
+      "name": "Carry",
+      "description": "Loaded carry variations",
+      "muscle_groups": [
+        "core",
+        "traps",
+        "forearms"
+      ]
+    }
+  },
+  "exercises": [
+    {
+      "id": "dumbbell_bench_press",
+      "name": "Dumbbell Bench Press",
+      "pattern": "horizontal_push",
+      "primary_muscle": "chest",
+      "secondary_muscles": [
+        "shoulders",
+        "triceps"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 7400000,
+      "comments": 111,
+      "regression": "dumbbell_floor_press",
+      "progression": "barbell_bench_press"
+    },
+    {
+      "id": "incline_dumbbell_bench_press",
+      "name": "Incline Dumbbell Bench Press",
+      "pattern": "horizontal_push",
+      "primary_muscle": "chest",
+      "secondary_muscles": [
+        "shoulders",
+        "triceps"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 6300000,
+      "comments": 64
+    },
+    {
+      "id": "barbell_bench_press",
+      "name": "Barbell Bench Press",
+      "pattern": "horizontal_push",
+      "primary_muscle": "chest",
+      "secondary_muscles": [
+        "shoulders",
+        "triceps"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 5300000,
+      "comments": 110
+    },
+    {
+      "id": "incline_bench_press",
+      "name": "Incline Barbell Bench Press",
+      "pattern": "horizontal_push",
+      "primary_muscle": "chest",
+      "secondary_muscles": [
+        "shoulders",
+        "triceps"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 3900000,
+      "comments": 51
+    },
+    {
+      "id": "decline_bench_press",
+      "name": "Decline Barbell Bench Press",
+      "pattern": "horizontal_push",
+      "primary_muscle": "chest",
+      "secondary_muscles": [
+        "shoulders",
+        "triceps"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 839400,
+      "comments": 15
+    },
+    {
+      "id": "dumbbell_flys",
+      "name": "Dumbbell Flys",
+      "pattern": "isolation",
+      "primary_muscle": "chest",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 5500000,
+      "comments": 51
+    },
+    {
+      "id": "incline_dumbbell_flys",
+      "name": "Incline Dumbbell Flys",
+      "pattern": "isolation",
+      "primary_muscle": "chest",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1300000,
+      "comments": 4
+    },
+    {
+      "id": "cable_crossovers_mid_chest",
+      "name": "Standing Cable Fly (Mid Chest)",
+      "pattern": "isolation",
+      "primary_muscle": "chest",
+      "secondary_muscles": [],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1900000,
+      "comments": 13
+    },
+    {
+      "id": "cable_crossovers_upper_chest",
+      "name": "Cable Crossovers (Upper Chest)",
+      "pattern": "isolation",
+      "primary_muscle": "chest",
+      "secondary_muscles": [],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 713700,
+      "comments": 14
+    },
+    {
+      "id": "pec_deck",
+      "name": "Pec Deck",
+      "pattern": "isolation",
+      "primary_muscle": "chest",
+      "secondary_muscles": [],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 3300000,
+      "comments": 12
+    },
+    {
+      "id": "chest_dip",
+      "name": "Chest Dip",
+      "pattern": "horizontal_push",
+      "primary_muscle": "chest",
+      "secondary_muscles": [
+        "triceps",
+        "shoulders"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 2100000,
+      "comments": 30
+    },
+    {
+      "id": "push_up",
+      "name": "Push Up",
+      "pattern": "horizontal_push",
+      "primary_muscle": "chest",
+      "secondary_muscles": [
+        "shoulders",
+        "triceps",
+        "core"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 1000000,
+      "comments": 18
+    },
+    {
+      "id": "dumbbell_pullover",
+      "name": "Dumbbell Pullover",
+      "pattern": "horizontal_pull",
+      "primary_muscle": "chest",
+      "secondary_muscles": [
+        "lats"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 6300000,
+      "comments": 134
+    },
+    {
+      "id": "dumbbell_lateral_raise",
+      "name": "Dumbbell Lateral Raise",
+      "pattern": "isolation",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 11000000,
+      "comments": 93
+    },
+    {
+      "id": "seated_dumbbell_lateral_raise",
+      "name": "Seated Dumbbell Lateral Raise",
+      "pattern": "isolation",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1600000,
+      "comments": 7
+    },
+    {
+      "id": "cable_lateral_raise",
+      "name": "Cable Lateral Raise",
+      "pattern": "isolation",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1000000,
+      "comments": 5
+    },
+    {
+      "id": "military_press",
+      "name": "Military Press",
+      "pattern": "vertical_push",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [
+        "triceps",
+        "core"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 4,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 6600000,
+      "comments": 46
+    },
+    {
+      "id": "seated_barbell_shoulder_press",
+      "name": "Seated Barbell Shoulder Press",
+      "pattern": "vertical_push",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [
+        "triceps",
+        "core"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 2700000,
+      "comments": 26
+    },
+    {
+      "id": "seated_dumbbell_press",
+      "name": "Seated Dumbbell Press",
+      "pattern": "vertical_push",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [
+        "triceps",
+        "core"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 4500000,
+      "comments": 40
+    },
+    {
+      "id": "standing_dumbbell_press",
+      "name": "Standing Dumbbell Shoulder Press",
+      "pattern": "vertical_push",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [
+        "triceps",
+        "core"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 3200000,
+      "comments": 19
+    },
+    {
+      "id": "seated_arnold_press",
+      "name": "Seated Arnold Press",
+      "pattern": "vertical_push",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [
+        "triceps"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 3100000,
+      "comments": 12
+    },
+    {
+      "id": "smith_machine_shoulder_press",
+      "name": "Smith Machine Shoulder Press",
+      "pattern": "vertical_push",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [
+        "triceps",
+        "core"
+      ],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 3500000,
+      "comments": 28
+    },
+    {
+      "id": "machine_shoulder_press",
+      "name": "Machine Shoulder Press",
+      "pattern": "vertical_push",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [
+        "triceps"
+      ],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 690900,
+      "comments": 4
+    },
+    {
+      "id": "dumbbell_front_raise",
+      "name": "Standing Dumbbell Front Raise",
+      "pattern": "isolation",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 809400,
+      "comments": 7
+    },
+    {
+      "id": "bent_over_dumbbell_reverse_fly",
+      "name": "Bent Over Dumbbell Reverse Fly",
+      "pattern": "isolation",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 4100000,
+      "comments": 32
+    },
+    {
+      "id": "seated_bent_over_dumbbell_reverse_fly",
+      "name": "Seated Bent Over Dumbbell Reverse Fly",
+      "pattern": "isolation",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 2900000,
+      "comments": 17
+    },
+    {
+      "id": "standing_cable_reverse_fly",
+      "name": "Standing Cable Reverse Fly",
+      "pattern": "isolation",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1300000,
+      "comments": 6
+    },
+    {
+      "id": "bent_over_cable_rear_delt_fly",
+      "name": "Bent Over Low Pulley Rear Delt Fly",
+      "pattern": "isolation",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "intermediate",
+      "views": 101600,
+      "comments": 2
+    },
+    {
+      "id": "machine_reverse_fly",
+      "name": "Machine Reverse Fly",
+      "pattern": "isolation",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 544800,
+      "comments": 5
+    },
+    {
+      "id": "cable_face_pull",
+      "name": "Cable Face Pull",
+      "pattern": "horizontal_pull",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [
+        "back",
+        "traps"
+      ],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 1300000,
+      "comments": 7
+    },
+    {
+      "id": "band_pull_apart",
+      "name": "Band Pull Apart",
+      "pattern": "isolation",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [
+        "back",
+        "traps"
+      ],
+      "equipment": [
+        "bands"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 210100,
+      "comments": 2
+    },
+    {
+      "id": "standing_dumbbell_curl",
+      "name": "Standing Dumbbell Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 4600000,
+      "comments": 39
+    },
+    {
+      "id": "standing_hammer_curl",
+      "name": "Standing Hammer Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [
+        "forearms"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 3400000,
+      "comments": 44
+    },
+    {
+      "id": "incline_dumbbell_curl",
+      "name": "Incline Dumbbell Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 3300000,
+      "comments": 26
+    },
+    {
+      "id": "standing_barbell_curl",
+      "name": "Standing Barbell Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 4800000,
+      "comments": 58
+    },
+    {
+      "id": "cable_curl",
+      "name": "Cable Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1900000,
+      "comments": 11
+    },
+    {
+      "id": "concentration_curl",
+      "name": "Concentration Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 2800000,
+      "comments": 13
+    },
+    {
+      "id": "zottman_curl",
+      "name": "Zottman Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [
+        "forearms"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 3,
+      "mechanics": "isolation",
+      "experience_level": "intermediate",
+      "views": 1300000,
+      "comments": 14
+    },
+    {
+      "id": "ez_bar_preacher_curl",
+      "name": "EZ Bar Preacher Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "ez_bar"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 2300000,
+      "comments": 13
+    },
+    {
+      "id": "cross_body_hammer_curl",
+      "name": "Cross Body Hammer Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [
+        "forearms"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1800000,
+      "comments": 13
+    },
+    {
+      "id": "barbell_preacher_curl",
+      "name": "Barbell Preacher Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 991100,
+      "comments": 9
+    },
+    {
+      "id": "machine_bicep_curl",
+      "name": "Machine Bicep Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 446100,
+      "comments": 6
+    },
+    {
+      "id": "ez_bar_curl",
+      "name": "EZ Bar Curl",
+      "pattern": "isolation",
+      "primary_muscle": "biceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "ez_bar"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 921700,
+      "comments": 10
+    },
+    {
+      "id": "straight_bar_tricep_extension",
+      "name": "Straight Bar Tricep Extension",
+      "pattern": "isolation",
+      "primary_muscle": "triceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 6300000,
+      "comments": 26
+    },
+    {
+      "id": "seated_dumbbell_tricep_extension",
+      "name": "Seated Dumbbell Tricep Extension",
+      "pattern": "isolation",
+      "primary_muscle": "triceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 3700000,
+      "comments": 28
+    },
+    {
+      "id": "lying_dumbbell_extension",
+      "name": "Lying Dumbbell Extension",
+      "pattern": "isolation",
+      "primary_muscle": "triceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 3,
+      "mechanics": "isolation",
+      "experience_level": "intermediate",
+      "views": 2700000,
+      "comments": 43
+    },
+    {
+      "id": "rope_tricep_extension",
+      "name": "Rope Tricep Extension",
+      "pattern": "isolation",
+      "primary_muscle": "triceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 2800000,
+      "comments": 12
+    },
+    {
+      "id": "ez_bar_skullcrusher",
+      "name": "EZ Bar Skullcrusher",
+      "pattern": "isolation",
+      "primary_muscle": "triceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "ez_bar"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 3100000,
+      "comments": 20
+    },
+    {
+      "id": "lying_barbell_tricep_extension",
+      "name": "Lying Barbell Tricep Extension",
+      "pattern": "isolation",
+      "primary_muscle": "triceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 3,
+      "mechanics": "isolation",
+      "experience_level": "intermediate",
+      "views": 2900000,
+      "comments": 15
+    },
+    {
+      "id": "french_press",
+      "name": "French Press",
+      "pattern": "isolation",
+      "primary_muscle": "triceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1600000,
+      "comments": 26
+    },
+    {
+      "id": "close_grip_bench_press",
+      "name": "Close Grip Bench Press",
+      "pattern": "horizontal_push",
+      "primary_muscle": "triceps",
+      "secondary_muscles": [
+        "chest",
+        "shoulders"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 2700000,
+      "comments": 26
+    },
+    {
+      "id": "dumbbell_tricep_kickback",
+      "name": "Dumbbell Tricep Kickback",
+      "pattern": "isolation",
+      "primary_muscle": "triceps",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1100000,
+      "comments": 13
+    },
+    {
+      "id": "tricep_dip",
+      "name": "Tricep Dip",
+      "pattern": "horizontal_push",
+      "primary_muscle": "triceps",
+      "secondary_muscles": [
+        "chest",
+        "shoulders"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 2400000,
+      "comments": 32
+    },
+    {
+      "id": "bench_dip",
+      "name": "Bench Dip",
+      "pattern": "horizontal_push",
+      "primary_muscle": "triceps",
+      "secondary_muscles": [
+        "chest",
+        "shoulders"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 1400000,
+      "comments": 9
+    },
+    {
+      "id": "dumbbell_floor_press",
+      "name": "Dumbbell Floor Press",
+      "pattern": "horizontal_push",
+      "primary_muscle": "chest",
+      "secondary_muscles": [
+        "triceps",
+        "shoulders"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 2400000,
+      "comments": 45
+    },
+    {
+      "id": "barbell_deadlift",
+      "name": "Conventional Deadlift",
+      "pattern": "hinge",
+      "primary_muscle": "back",
+      "secondary_muscles": [
+        "hamstrings",
+        "glutes",
+        "traps",
+        "core"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 5,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 5500000,
+      "comments": 78
+    },
+    {
+      "id": "trap_bar_deadlift",
+      "name": "Trap Bar Deadlift",
+      "pattern": "hinge",
+      "primary_muscle": "back",
+      "secondary_muscles": [
+        "quads",
+        "glutes",
+        "traps"
+      ],
+      "equipment": [
+        "trap_bar"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 410700,
+      "comments": 14
+    },
+    {
+      "id": "stiff_leg_deadlift",
+      "name": "Stiff Leg Deadlift",
+      "pattern": "hinge",
+      "primary_muscle": "hamstrings",
+      "secondary_muscles": [
+        "glutes",
+        "back"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 4700000,
+      "comments": 48
+    },
+    {
+      "id": "romanian_deadlift",
+      "name": "Romanian Deadlift",
+      "pattern": "hinge",
+      "primary_muscle": "hamstrings",
+      "secondary_muscles": [
+        "glutes",
+        "back"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 2100000,
+      "comments": 19
+    },
+    {
+      "id": "dumbbell_stiff_leg_deadlift",
+      "name": "Dumbbell Stiff Leg Deadlift",
+      "pattern": "hinge",
+      "primary_muscle": "hamstrings",
+      "secondary_muscles": [
+        "glutes",
+        "back"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 5800000,
+      "comments": 80
+    },
+    {
+      "id": "barbell_hip_thrust",
+      "name": "Barbell Hip Thrust",
+      "pattern": "hinge",
+      "primary_muscle": "glutes",
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 3,
+      "mechanics": "isolation",
+      "experience_level": "intermediate",
+      "views": 1400000,
+      "comments": 34
+    },
+    {
+      "id": "good_mornings",
+      "name": "Good Mornings",
+      "pattern": "hinge",
+      "primary_muscle": "hamstrings",
+      "secondary_muscles": [
+        "glutes",
+        "back"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 1400000,
+      "comments": 27
+    },
+    {
+      "id": "hyperextension",
+      "name": "Hyperextension",
+      "pattern": "hinge",
+      "primary_muscle": "back",
+      "secondary_muscles": [
+        "glutes",
+        "hamstrings"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 3400000,
+      "comments": 40
+    },
+    {
+      "id": "seated_cable_row",
+      "name": "Seated Cable Row",
+      "pattern": "horizontal_pull",
+      "primary_muscle": "back",
+      "secondary_muscles": [
+        "biceps",
+        "rear_delts"
+      ],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 5600000,
+      "comments": 30
+    },
+    {
+      "id": "lat_pulldown",
+      "name": "Lat Pulldown",
+      "pattern": "vertical_pull",
+      "primary_muscle": "lats",
+      "secondary_muscles": [
+        "biceps",
+        "rear_delts"
+      ],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 5100000,
+      "comments": 20
+    },
+    {
+      "id": "close_grip_lat_pulldown",
+      "name": "Close Grip Lat Pulldown",
+      "pattern": "vertical_pull",
+      "primary_muscle": "lats",
+      "secondary_muscles": [
+        "biceps",
+        "core"
+      ],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 2200000,
+      "comments": 19
+    },
+    {
+      "id": "wide_grip_pull_up",
+      "name": "Wide Grip Pull Up",
+      "pattern": "vertical_pull",
+      "primary_muscle": "lats",
+      "secondary_muscles": [
+        "biceps",
+        "core"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 4,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 3500000,
+      "comments": 83
+    },
+    {
+      "id": "pull_up",
+      "name": "Pull Up",
+      "pattern": "vertical_pull",
+      "primary_muscle": "lats",
+      "secondary_muscles": [
+        "biceps",
+        "core"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 526300,
+      "comments": 13
+    },
+    {
+      "id": "chin_up",
+      "name": "Chin Up",
+      "pattern": "vertical_pull",
+      "primary_muscle": "lats",
+      "secondary_muscles": [
+        "biceps",
+        "core"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 2000000,
+      "comments": 31
+    },
+    {
+      "id": "straight_arm_lat_pulldown",
+      "name": "Straight Arm Lat Pulldown",
+      "pattern": "vertical_pull",
+      "primary_muscle": "lats",
+      "secondary_muscles": [],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 1400000,
+      "comments": 12
+    },
+    {
+      "id": "bent_over_barbell_row",
+      "name": "Bent Over Barbell Row",
+      "pattern": "horizontal_pull",
+      "primary_muscle": "back",
+      "secondary_muscles": [
+        "biceps",
+        "rear_delts",
+        "traps"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 8700000,
+      "comments": 49
+    },
+    {
+      "id": "bent_over_dumbbell_row",
+      "name": "Bent Over Dumbbell Row",
+      "pattern": "horizontal_pull",
+      "primary_muscle": "back",
+      "secondary_muscles": [
+        "biceps",
+        "rear_delts"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 6600000,
+      "comments": 35
+    },
+    {
+      "id": "one_arm_dumbbell_row",
+      "name": "One Arm Dumbbell Row",
+      "pattern": "horizontal_pull",
+      "primary_muscle": "back",
+      "secondary_muscles": [
+        "biceps",
+        "lats"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 9300000,
+      "comments": 58
+    },
+    {
+      "id": "barbell_squat",
+      "name": "Barbell Back Squat",
+      "pattern": "squat",
+      "primary_muscle": "quads",
+      "secondary_muscles": [
+        "glutes",
+        "core",
+        "hamstrings"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 4,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 5500000,
+      "comments": 112
+    },
+    {
+      "id": "front_squat",
+      "name": "Front Squat",
+      "pattern": "squat",
+      "primary_muscle": "quads",
+      "secondary_muscles": [
+        "glutes",
+        "core"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 4,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 1400000,
+      "comments": 22
+    },
+    {
+      "id": "dumbbell_goblet_squat",
+      "name": "Dumbbell Goblet Squat",
+      "pattern": "squat",
+      "primary_muscle": "quads",
+      "secondary_muscles": [
+        "glutes",
+        "core"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 3100000,
+      "comments": 21
+    },
+    {
+      "id": "dumbbell_squat",
+      "name": "Dumbbell Squat",
+      "pattern": "squat",
+      "primary_muscle": "quads",
+      "secondary_muscles": [
+        "glutes",
+        "core"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 3400000,
+      "comments": 59
+    },
+    {
+      "id": "leg_press",
+      "name": "45 Degree Leg Press",
+      "pattern": "squat",
+      "primary_muscle": "quads",
+      "secondary_muscles": [
+        "glutes",
+        "hamstrings"
+      ],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 3300000,
+      "comments": 31
+    },
+    {
+      "id": "machine_hack_squat",
+      "name": "Machine Hack Squat",
+      "pattern": "squat",
+      "primary_muscle": "quads",
+      "secondary_muscles": [
+        "glutes"
+      ],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 1600000,
+      "comments": 24
+    },
+    {
+      "id": "dumbbell_lunge",
+      "name": "Dumbbell Lunge",
+      "pattern": "single_leg",
+      "primary_muscle": "quads",
+      "secondary_muscles": [
+        "glutes",
+        "hamstrings",
+        "core"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 3000000,
+      "comments": 50
+    },
+    {
+      "id": "dumbbell_rear_lunge",
+      "name": "Dumbbell Rear Lunge",
+      "pattern": "single_leg",
+      "primary_muscle": "quads",
+      "secondary_muscles": [
+        "glutes",
+        "hamstrings"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 1200000,
+      "comments": 28
+    },
+    {
+      "id": "dumbbell_step_up",
+      "name": "Dumbbell Step Up",
+      "pattern": "single_leg",
+      "primary_muscle": "quads",
+      "secondary_muscles": [
+        "glutes",
+        "hamstrings"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 2100000,
+      "comments": 46
+    },
+    {
+      "id": "dumbbell_bulgarian_split_squat",
+      "name": "Dumbbell Bulgarian Split Squat",
+      "pattern": "single_leg",
+      "primary_muscle": "quads",
+      "secondary_muscles": [
+        "glutes",
+        "hamstrings",
+        "core"
+      ],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 1500000,
+      "comments": 24
+    },
+    {
+      "id": "leg_extension",
+      "name": "Leg Extension",
+      "pattern": "isolation",
+      "primary_muscle": "quads",
+      "secondary_muscles": [],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 3200000,
+      "comments": 21
+    },
+    {
+      "id": "leg_curl",
+      "name": "Leg Curl",
+      "pattern": "isolation",
+      "primary_muscle": "hamstrings",
+      "secondary_muscles": [],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 4600000,
+      "comments": 28
+    },
+    {
+      "id": "seated_leg_curl",
+      "name": "Seated Leg Curl",
+      "pattern": "isolation",
+      "primary_muscle": "hamstrings",
+      "secondary_muscles": [],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 264800,
+      "comments": 4
+    },
+    {
+      "id": "dumbbell_hamstring_curl",
+      "name": "Dumbbell Hamstring Curl",
+      "pattern": "isolation",
+      "primary_muscle": "hamstrings",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "intermediate",
+      "views": 1600000,
+      "comments": 41
+    },
+    {
+      "id": "standing_machine_calf_raise",
+      "name": "Standing Machine Calf Raise",
+      "pattern": "isolation",
+      "primary_muscle": "calves",
+      "secondary_muscles": [],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 578300,
+      "comments": 6
+    },
+    {
+      "id": "seated_calf_raise",
+      "name": "Seated Calf Raise",
+      "pattern": "isolation",
+      "primary_muscle": "calves",
+      "secondary_muscles": [],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 3400000,
+      "comments": 34
+    },
+    {
+      "id": "standing_barbell_calf_raise",
+      "name": "Standing Barbell Calf Raise",
+      "pattern": "isolation",
+      "primary_muscle": "calves",
+      "secondary_muscles": [],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1200000,
+      "comments": 12
+    },
+    {
+      "id": "bodyweight_standing_calf_raise",
+      "name": "Bodyweight Standing Calf Raise",
+      "pattern": "isolation",
+      "primary_muscle": "calves",
+      "secondary_muscles": [],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 512800,
+      "comments": 0
+    },
+    {
+      "id": "lying_floor_leg_raise",
+      "name": "Lying Floor Leg Raise",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [
+        "hip_flexors"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1900000,
+      "comments": 25
+    },
+    {
+      "id": "hanging_leg_raise",
+      "name": "Hanging Leg Raise",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [
+        "hip_flexors"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 4,
+      "mechanics": "isolation",
+      "experience_level": "advanced",
+      "views": 1500000,
+      "comments": 31
+    },
+    {
+      "id": "hanging_knee_raise",
+      "name": "Hanging Knee Raise",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [
+        "hip_flexors"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 870400,
+      "comments": 21
+    },
+    {
+      "id": "cable_crunch",
+      "name": "Cable Crunch",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 2600000,
+      "comments": 20
+    },
+    {
+      "id": "weighted_crunch",
+      "name": "Weighted Crunch",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [],
+      "equipment": [
+        "other"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "intermediate",
+      "views": 1200000,
+      "comments": 31
+    },
+    {
+      "id": "plank",
+      "name": "Plank",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [
+        "obliques",
+        "shoulders"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1700000,
+      "comments": 21
+    },
+    {
+      "id": "side_plank",
+      "name": "Side Plank",
+      "pattern": "core",
+      "primary_muscle": "obliques",
+      "secondary_muscles": [
+        "abs"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 702700,
+      "comments": 14
+    },
+    {
+      "id": "sit_up",
+      "name": "Sit Up",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [
+        "hip_flexors"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 1300000,
+      "comments": 31
+    },
+    {
+      "id": "ab_crunch",
+      "name": "Ab Crunch",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 495200,
+      "comments": 1
+    },
+    {
+      "id": "russian_twist",
+      "name": "Russian Twist",
+      "pattern": "core",
+      "primary_muscle": "obliques",
+      "secondary_muscles": [
+        "abs"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 472300,
+      "comments": 6
+    },
+    {
+      "id": "abdominal_air_bike",
+      "name": "Abdominal Air Bike",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [
+        "obliques"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 722200,
+      "comments": 5
+    },
+    {
+      "id": "barbell_abdominal_rollouts",
+      "name": "Barbell Abdominal Rollouts",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [
+        "lats",
+        "shoulders"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 4,
+      "mechanics": "compound",
+      "experience_level": "intermediate",
+      "views": 639700,
+      "comments": 13
+    },
+    {
+      "id": "exercise_ball_crunch",
+      "name": "Exercise Ball Crunch",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [],
+      "equipment": [
+        "exercise_ball"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "intermediate",
+      "views": 619700,
+      "comments": 6
+    },
+    {
+      "id": "pallof_press",
+      "name": "Pallof Press",
+      "pattern": "core",
+      "primary_muscle": "abs",
+      "secondary_muscles": [
+        "obliques"
+      ],
+      "equipment": [
+        "cable"
+      ],
+      "difficulty": 1,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 136900,
+      "comments": 1
+    },
+    {
+      "id": "dumbbell_shrug",
+      "name": "Dumbbell Shrug",
+      "pattern": "isolation",
+      "primary_muscle": "traps",
+      "secondary_muscles": [],
+      "equipment": [
+        "dumbbells"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 3600000,
+      "comments": 29
+    },
+    {
+      "id": "barbell_upright_row",
+      "name": "Barbell Upright Row",
+      "pattern": "vertical_pull",
+      "primary_muscle": "shoulders",
+      "secondary_muscles": [
+        "traps",
+        "biceps"
+      ],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 3,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 4200000,
+      "comments": 44
+    },
+    {
+      "id": "kettlebell_swing",
+      "name": "Kettlebell Swing",
+      "pattern": "hinge",
+      "primary_muscle": "glutes",
+      "secondary_muscles": [
+        "hamstrings",
+        "back",
+        "core"
+      ],
+      "equipment": [
+        "kettlebells"
+      ],
+      "difficulty": 2,
+      "mechanics": "compound",
+      "experience_level": "beginner",
+      "views": 161400,
+      "comments": 0
+    },
+    {
+      "id": "standing_glute_kickback_machine",
+      "name": "Standing Glute Kickback Machine",
+      "pattern": "isolation",
+      "primary_muscle": "glutes",
+      "secondary_muscles": [],
+      "equipment": [
+        "machine"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 691700,
+      "comments": 8
+    },
+    {
+      "id": "bodyweight_glute_bridge",
+      "name": "Bodyweight Glute Bridge",
+      "pattern": "hinge",
+      "primary_muscle": "glutes",
+      "secondary_muscles": [
+        "hamstrings",
+        "core"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 352600,
+      "comments": 0
+    },
+    {
+      "id": "glute_kick_back",
+      "name": "Glute Kick Back",
+      "pattern": "isolation",
+      "primary_muscle": "glutes",
+      "secondary_muscles": [],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 764500,
+      "comments": 8
+    },
+    {
+      "id": "single_leg_glute_bridge",
+      "name": "Single Leg Glute Bridge",
+      "pattern": "hinge",
+      "primary_muscle": "glutes",
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 163300,
+      "comments": 0
+    },
+    {
+      "id": "nordic_hamstring_curl",
+      "name": "Nordic Hamstring Curl",
+      "pattern": "isolation",
+      "primary_muscle": "hamstrings",
+      "secondary_muscles": [],
+      "equipment": [
+        "bodyweight"
+      ],
+      "difficulty": 5,
+      "mechanics": "isolation",
+      "experience_level": "advanced",
+      "views": 103900,
+      "comments": 5
+    },
+    {
+      "id": "exercise_ball_leg_curl",
+      "name": "Exercise Ball Leg Curl",
+      "pattern": "isolation",
+      "primary_muscle": "hamstrings",
+      "secondary_muscles": [
+        "glutes",
+        "core"
+      ],
+      "equipment": [
+        "exercise_ball"
+      ],
+      "difficulty": 2,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 0,
+      "comments": 0
+    },
+    {
+      "id": "barbell_wrist_curl",
+      "name": "Seated Barbell Wrist Curl",
+      "pattern": "isolation",
+      "primary_muscle": "forearms",
+      "secondary_muscles": [],
+      "equipment": [
+        "barbell"
+      ],
+      "difficulty": 1,
+      "mechanics": "isolation",
+      "experience_level": "beginner",
+      "views": 1600000,
+      "comments": 19
+    }
+  ]
+}
