@@ -77,18 +77,26 @@ class ScrapedExercise:
 
 
 # --------------------------------------------------------------------------- #
-# Environment → Equipment mapping (from exercise_plans.py)
+# Environment → Equipment mapping (single source of truth)
 # --------------------------------------------------------------------------- #
+# This mapping is intentionally kept consistent with the one in
+# `exercise_plans.py`. The two files used to drift (HOME_BODYWEIGHT was []
+# in one and ["bodyweight"] in the other). The contract now is:
+# `HOME_BODYWEIGHT` is the empty list — exercises that require no equipment
+# are picked when their `equipment` field is empty. The bodyweight token is
+# NOT stored in the available list to avoid matching the comprehensive DB's
+# `["bodyweight"]` equipment entries via set intersection; instead,
+# `_equipment_feasible` special-cases bodyweight exercises (empty list).
 
 ENVIRONMENT_EQUIPMENT: Dict[TrainingEnvironment, List[str]] = {
-    TrainingEnvironment.HOME_BODYWEIGHT: ["bodyweight"],  # Bodyweight only
+    TrainingEnvironment.HOME_BODYWEIGHT: [],  # Bodyweight only — no equipment
     TrainingEnvironment.HOME_GYM: [
         "dumbbells", "bands", "bench", "pullup_bar", "kettlebell",
-        "bodyweight",  # Home gym also has bodyweight exercises
     ],
     TrainingEnvironment.GYM_FULL: [
         "barbell", "bench", "dumbbells", "machine", "cardio_machine",
-        "kettlebell", "bands", "pullup_bar", "trap_bar", "bodyweight",
+        "kettlebell", "bands", "pullup_bar", "trap_bar", "ez_bar",
+        "exercise_ball",
     ],
 }
 
@@ -185,10 +193,27 @@ class ExerciseDatabase:
         self.movement_patterns = data.get('movement_patterns', {})
         
         self.exercises: Dict[str, ScrapedExercise] = {}
+        # Track skipped records so a single malformed entry does not abort
+        # the entire load. See audit finding F41.
+        skipped = 0
         for ex_data in data.get('exercises', []):
-            ex = ScrapedExercise(**ex_data)
-            self.exercises[ex.id] = ex
-        
+            try:
+                # Filter to known ScrapedExercise fields so unexpected keys
+                # in the JSON do not cause a TypeError.
+                import dataclasses as _dc
+                field_names = {f.name for f in _dc.fields(ScrapedExercise)}
+                filtered = {k: v for k, v in ex_data.items() if k in field_names}
+                ex = ScrapedExercise(**filtered)
+                self.exercises[ex.id] = ex
+            except (TypeError, ValueError, KeyError) as e:
+                import sys
+                print(f"[fitness_engine] warning: skipped malformed exercise "
+                      f"record: {e}. Record: {ex_data!r}", file=sys.stderr)
+                skipped += 1
+        if skipped:
+            print(f"[fitness_engine] exercise database load: loaded="
+                  f"{len(self.exercises)}, skipped={skipped}", file=sys.stderr)
+
         self.filters = data.get('filter_categories', {})
     
     def _build_fallback_database(self):
@@ -242,11 +267,19 @@ class ExerciseDatabase:
         ]
     
     def filter_by_equipment(self, equipment: List[str]) -> List[ScrapedExercise]:
-        """Filter exercises by available equipment."""
+        """Filter exercises by available equipment.
+
+        An exercise is included when its required equipment list is satisfied
+        by ``equipment``. Bodyweight exercises (empty equipment list OR the
+        explicit ``["bodyweight"]`` token used by the comprehensive DB) are
+        always available. See audit finding F39.
+        """
         available = set(equipment)
+        # Treat the bodyweight token as universally available
+        available.add("bodyweight")
         results = []
         for ex in self.exercises.values():
-            if not ex.equipment:  # Bodyweight exercises
+            if not ex.equipment or ex.equipment == ["bodyweight"]:
                 results.append(ex)
             elif all(eq in available for eq in ex.equipment):
                 results.append(ex)
@@ -289,15 +322,21 @@ class ExerciseDatabase:
         return results
     
     def _equipment_feasible(
-        self, 
-        required_equipment: List[str], 
+        self,
+        required_equipment: List[str],
         available: List[str]
     ) -> bool:
-        """Check if exercise equipment requirements are met."""
-        # Handle bodyweight exercises (empty list or "bodyweight" string)
+        """Check if exercise equipment requirements are met.
+
+        Treats bodyweight exercises (empty list or ``["bodyweight"]``) as
+        always available regardless of environment.
+        """
         if not required_equipment or required_equipment == ['bodyweight']:
-            return True  # Bodyweight exercises always available
-        return all(eq in available for eq in required_equipment)
+            return True
+        # Also treat the bodyweight token as universally available
+        avail = set(available)
+        avail.add('bodyweight')
+        return all(eq in avail for eq in required_equipment)
     
     def search(self, query: str) -> List[ScrapedExercise]:
         """Search exercises by name or alternative names."""

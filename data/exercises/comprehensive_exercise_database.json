@@ -1,7 +1,7 @@
 {
   "metadata": {
     "source": "https://www.muscleandstrength.com/exercises",
-    "total_exercises": 100,
+    "total_exercises": 115,
     "scraped_date": "2026-06-16",
     "version": "1.0"
   },
@@ -269,7 +269,7 @@
         "shoulders"
       ],
       "equipment": [
-        "bodyweight"
+        "pullup_bar"
       ],
       "difficulty": 3,
       "mechanics": "compound",
@@ -942,7 +942,7 @@
         "shoulders"
       ],
       "equipment": [
-        "bodyweight"
+        "pullup_bar"
       ],
       "difficulty": 2,
       "mechanics": "compound",
@@ -960,7 +960,7 @@
         "shoulders"
       ],
       "equipment": [
-        "bodyweight"
+        "bench"
       ],
       "difficulty": 1,
       "mechanics": "compound",
@@ -1196,7 +1196,7 @@
         "core"
       ],
       "equipment": [
-        "bodyweight"
+        "pullup_bar"
       ],
       "difficulty": 4,
       "mechanics": "compound",
@@ -1214,7 +1214,7 @@
         "core"
       ],
       "equipment": [
-        "bodyweight"
+        "pullup_bar"
       ],
       "difficulty": 3,
       "mechanics": "compound",
@@ -1232,7 +1232,7 @@
         "core"
       ],
       "equipment": [
-        "bodyweight"
+        "pullup_bar"
       ],
       "difficulty": 3,
       "mechanics": "compound",
@@ -1638,7 +1638,7 @@
         "hip_flexors"
       ],
       "equipment": [
-        "bodyweight"
+        "pullup_bar"
       ],
       "difficulty": 4,
       "mechanics": "isolation",
@@ -1655,7 +1655,7 @@
         "hip_flexors"
       ],
       "equipment": [
-        "bodyweight"
+        "pullup_bar"
       ],
       "difficulty": 3,
       "mechanics": "compound",
@@ -1862,7 +1862,7 @@
     {
       "id": "barbell_upright_row",
       "name": "Barbell Upright Row",
-      "pattern": "vertical_pull",
+      "pattern": "horizontal_pull",
       "primary_muscle": "shoulders",
       "secondary_muscles": [
         "traps",

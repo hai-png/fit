@@ -4,16 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fitness-engine-fit"
-version = "2.2.1"
+version = "2.4.0"
 description = "Evidence-based deterministic training and meal plan generator"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "Educational/coaching use only; not medical advice"}
+license = {text = "MIT"}
 authors = [{name = "hai-png/fit contributors"}]
 keywords = ["fitness", "nutrition", "meal-planning", "training"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
+  "License :: OSI Approved :: MIT License",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.6",
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
 ]
 
 [project.scripts]
@@ -27,3 +35,19 @@ fitness_engine = []
 
 [tool.ruff]
 line-length = 120
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["fitness_engine"]
+omit = ["*/tests/*", "*/scripts/*", "*/examples/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+]
+

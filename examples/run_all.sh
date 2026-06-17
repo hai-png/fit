@@ -4,6 +4,10 @@
 set -e
 cd "$(dirname "$0")/.."
 
+# Ensure output directory exists before render_html tries to write to it.
+# See audit finding F86.
+mkdir -p output/
+
 echo "============================================================"
 echo " 1. Running unit tests (calculators)"
 echo "============================================================"

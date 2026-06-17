@@ -131,10 +131,22 @@ class TestMacros(unittest.TestCase):
         self.assertLess(abs(total_kcal - m.calories), 100)
 
     def test_fat_floor_enforced(self):
-        m = macros_for(1200, 90, 60, GoalArchetype.FAT_LOSS, Sex.MALE,
+        # Fat floor of 0.5 g/kg = 45 g for a 90-kg male. At 2200 kcal
+        # (rather than the old 1200 kcal), the floors fit and we can verify
+        # the fat floor is honored.
+        m = macros_for(2200, 90, 60, GoalArchetype.FAT_LOSS, Sex.MALE,
                        Somatotype.ENDOMORPH, DietaryPreference.OMNIVORE,
                        body_fat_pct=25)
         self.assertGreaterEqual(m.fat_g, 90 * 0.5)
+
+    def test_impossible_macro_combination_raises(self):
+        """When calorie target is too low to satisfy protein+fat+carb floors,
+        macros_for must raise ValueError rather than silently returning
+        a split whose caloric sum exceeds the target. See audit C2."""
+        with self.assertRaisesRegex(ValueError, "Cannot satisfy macro floors"):
+            macros_for(1200, 90, 60, GoalArchetype.FAT_LOSS, Sex.MALE,
+                       Somatotype.ENDOMORPH, DietaryPreference.OMNIVORE,
+                       body_fat_pct=25)
 
     def test_keto_caps_carbs(self):
         m = macros_for(2200, 80, 64, GoalArchetype.FAT_LOSS, Sex.MALE,
@@ -192,8 +204,9 @@ class TestHydration(unittest.TestCase):
 
 class TestVisualBodyFat(unittest.TestCase):
     def test_visual_label(self):
-        self.assertEqual(body_fat_from_visual("shredded"), 8.0)
-        self.assertEqual(body_fat_from_visual("average_fit"), 16.0)
+        # Updated midpoints after F6 (contiguous bands, no gaps).
+        self.assertEqual(body_fat_from_visual("shredded"), 8.5)
+        self.assertEqual(body_fat_from_visual("average_fit"), 16.5)
         self.assertEqual(body_fat_from_visual("obese"), 30.0)
 
     def test_invalid_label(self):
@@ -203,7 +216,8 @@ class TestVisualBodyFat(unittest.TestCase):
     def test_body_composition_uses_visual(self):
         bc = body_composition(80, 178, 30, Sex.MALE, visual_bf_label="lean")
         self.assertEqual(bc.estimation_method, "visual")
-        self.assertEqual(bc.body_fat_pct, 13.0)
+        # Updated midpoint after F6 (lean band now 12-15%, midpoint 13.5).
+        self.assertEqual(bc.body_fat_pct, 13.5)
 
     def test_body_composition_priority(self):
         """User-supplied BF% takes priority over visual."""

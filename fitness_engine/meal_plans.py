@@ -59,6 +59,14 @@ class MealPlan:
 # --------------------------------------------------------------------------- #
 # Master library                                                             #
 # --------------------------------------------------------------------------- #
+# The 60 meals below are hand-curated for the legacy internal meal planner.
+# Calorie and macro values are approximate and were derived from typical
+# USDA FoodData Central entries for the listed ingredients; they should be
+# treated as estimates, not authoritative values. The production planner
+# (seven_day_meal_planner.py) uses the external recipe database
+# (data/recipes/unified_external_recipes.json) by default; this library is
+# only consulted when ``include_internal=True`` is passed to recipe_pool.
+# See audit finding F42.
 MEAL_LIBRARY: List[MealItem] = [
     # ---------------- AMERICAN ----------------
     MealItem(
@@ -577,6 +585,19 @@ def by_slot(slot: str) -> List[MealItem]:
 
 # Dietary compatibility matrix. Diet modes are filters/presets, not claims that
 # any preset is inherently superior when calories and protein are equated.
+#
+# The matrix is intentionally asymmetric and reflects subset relationships:
+# OMNIVORE is a superset of every other diet (an omnivore can eat anything a
+# vegan can), so OMNIVORE's tag set includes every tag. Conversely, VEGAN is
+# the strictest diet, so its tag set is the smallest. The asymmetry is
+# documented here so future maintainers do not try to "fix" it by making the
+# matrix transitively closed. See audit finding F43.
+#
+# Subset chain (most permissive → strictest):
+#   OMNIVORE ⊃ BALANCED ⊃ POLLO_PESCATARIAN ⊃ PESCATARIAN ⊃ VEGETARIAN ⊃ VEGAN
+# Diet-mode tags (KETO, LOW_CARB, PALEO, MEDITERRANEAN, GLUTEN_FREE,
+# HIGH_PROTEIN) are orthogonal to the subset chain and are included in the
+# tag sets of diets that are compatible with them.
 DIET_COMPATIBILITY = {
     DietaryPreference.BALANCED: {
         "balanced", "omnivore", "pollo_pescatarian", "pescatarian",
@@ -606,16 +627,44 @@ def filter_compatible(diet: DietaryPreference,
 
     Diet modes are implemented as tag-compatibility filters; cuisine is applied
     separately and falls back to any compatible cuisine if necessary.
+
+    Allergen matching uses word-boundary regex to avoid false positives like
+    "egg" matching "eggplant" or "nuts" matching "donuts". Plural forms are
+    handled by allowing an optional trailing 's' on the allergen stem, so
+    "egg" matches both "egg" and "eggs", and "nut" matches both "nut" and
+    "nuts". See audit finding F46.
     """
+    import re
     acceptable = DIET_COMPATIBILITY.get(diet, set())
+    # Pre-compile allergen patterns once for efficiency.
+    allergen_patterns = []
+    for a in allergens:
+        a_l = a.lower().strip()
+        if not a_l:
+            continue
+        # Word-boundary match, case-insensitive, with optional plural 's'.
+        # Allergens like "tree nuts" become r"\btree\s+nuts?\b".
+        escaped = re.escape(a_l).replace(r"\ ", r"\s+")
+        # If the allergen ends in 's', the plural pattern is the same; if not,
+        # allow an optional trailing 's'.
+        if not a_l.endswith("s"):
+            pattern = r"\b" + escaped + r"s?\b"
+        else:
+            pattern = r"\b" + escaped + r"\b"
+        allergen_patterns.append((a_l, re.compile(pattern)))
     out = []
     for m in MEAL_LIBRARY:
         # A meal is compatible if any of its tags intersects acceptable
         if not (set(m.tags) & acceptable):
             continue
-        # Allergen check on ingredients (very simple keyword search)
+        # Allergen check on ingredients with word-boundary matching
         ing_text = " ".join(m.ingredients).lower()
-        if any(a.lower() in ing_text for a in allergens):
+        blocked = False
+        for _, pat in allergen_patterns:
+            if pat.search(ing_text):
+                blocked = True
+                break
+        if blocked:
             continue
         out.append(m)
     return out
@@ -626,11 +675,15 @@ def filter_compatible(diet: DietaryPreference,
 # Per-slot calorie weights for each meal frequency. These let the assembler
 # allocate the daily target across meals *proportionally* rather than greedily
 # dumping the full target into the first meal. Weights sum to 1.0 per layout.
+#
+# For the 5-meal layout, the two snack slots use distinct keys ("snack_1" and
+# "snack_2") so the assembler can disambiguate them when building the plan.
+# The renderer maps both back to "Snack" for display. See audit F47.
 _SLOT_WEIGHTS: Dict[int, List[Tuple[str, float]]] = {
     3: [("breakfast", 0.30), ("lunch", 0.35), ("dinner", 0.35)],
     4: [("breakfast", 0.25), ("lunch", 0.30), ("snack", 0.15), ("dinner", 0.30)],
-    5: [("breakfast", 0.22), ("snack", 0.12), ("lunch", 0.28),
-        ("snack", 0.12), ("dinner", 0.26)],
+    5: [("breakfast", 0.22), ("snack_1", 0.12), ("lunch", 0.28),
+        ("snack_2", 0.12), ("dinner", 0.26)],
 }
 
 
@@ -646,9 +699,26 @@ def _slot_layout(meals_per_day: int) -> List[Tuple[str, float]]:
 
 def _scale_meal(meal: MealItem, scale: float) -> MealItem:
     """Return a shallow copy of *meal* with all numeric fields multiplied by
-    *scale* (recorded in ``portion_scale``)."""
+    *scale* (recorded in ``portion_scale``).
+
+    The scale is clamped to [0.25, 3.0]. When clamping occurs, a warning is
+    emitted to stderr so the user knows the plan's calorie accuracy is
+    compromised. See audit finding F45.
+    """
     import copy
+    import sys
+    raw_scale = scale
     scale = round(max(0.25, min(scale, 3.0)), 2)  # keep within a sane band
+    if abs(scale - max(0.25, min(raw_scale, 3.0))) > 0.001 or raw_scale != scale:
+        # Only warn when the clamp actually changed the value.
+        if raw_scale < 0.25 or raw_scale > 3.0:
+            print(
+                f"[fitness_engine] warning: portion scale {raw_scale:.2f} for "
+                f"'{meal.name}' was clamped to {scale:.2f}. The day's calorie "
+                f"target may not be met exactly. Consider adding/removing a "
+                f"side item instead of scaling an entire recipe.",
+                file=sys.stderr,
+            )
     m = copy.copy(meal)
     m.calories = round(meal.calories * scale, 0)
     m.protein_g = round(meal.protein_g * scale, 1)
@@ -662,17 +732,24 @@ def _scale_meal(meal: MealItem, scale: float) -> MealItem:
 def _slot_candidates(pool: List[MealItem], slot: str,
                      diet: DietaryPreference, allergens: List[str]) -> List[MealItem]:
     """Candidate meals for a slot within the cuisine-filtered *pool*;
-    falls back to any compatible meal if the cuisine pool is empty."""
-    candidates = [m for m in pool if m.slot == slot]
+    falls back to any compatible meal if the cuisine pool is empty.
+
+    Slots ``snack_1`` and ``snack_2`` (used in the 5-meal layout) are both
+    treated as ``snack`` for pool matching, but the chosen MealItem's ``slot``
+    field is updated by the caller so the two snacks remain distinct.
+    """
+    pool_slot = "snack" if slot in {"snack_1", "snack_2"} else slot
+    candidates = [m for m in pool if m.slot == pool_slot]
     if not candidates:
         candidates = [m for m in filter_compatible(diet, allergens)
-                      if m.slot == slot]
+                      if m.slot == pool_slot]
     return candidates
 
 
 def assemble_day(
     cuisine: str, diet: DietaryPreference, target_calories: float,
     meals_per_day: int = 3, allergens: Optional[List[str]] = None,
+    seed: Optional[int] = None,
 ) -> MealPlan:
     """Pick breakfast / lunch / dinner (+ snacks) that match the calorie
     target while honouring dietary pattern and cuisine.
@@ -685,7 +762,11 @@ def assemble_day(
       2. **Portion scaling** — after base meals are chosen, a single
          uniform scale factor brings the day total to the target, so the
          plan is genuinely calorie-accurate (within rounding).
+
+    The ``seed`` parameter makes plan generation reproducible — passing the
+    same seed twice produces the same plan. See audit finding F44.
     """
+    rng = random.Random(seed) if seed is not None else random
     allergens = allergens or []
     pool = filter_compatible(diet, allergens)
     if cuisine:
@@ -700,8 +781,19 @@ def assemble_day(
         candidates = _slot_candidates(pool, slot, diet, allergens)
         if not candidates:
             continue
-        candidates.sort(key=lambda m: abs(m.calories - slot_target))
-        base_picks.append(candidates[0])
+        # Deterministic tiebreaker when seed provided, else keep random.
+        if seed is not None:
+            candidates.sort(key=lambda m: (abs(m.calories - slot_target), m.name))
+        else:
+            candidates.sort(key=lambda m: (abs(m.calories - slot_target), rng.random()))
+        chosen = candidates[0]
+        # For 5-meal layout, stamp the disambiguated slot name on the meal
+        # so the renderer can label them "Snack 1" and "Snack 2".
+        if slot != chosen.slot:
+            import copy as _copy
+            chosen = _copy.copy(chosen)
+            chosen.slot = slot
+        base_picks.append(chosen)
 
     # Uniform scale so the day total matches the target.
     base_total = sum(m.calories for m in base_picks)
@@ -730,12 +822,17 @@ def assemble_week(
     cuisine: str, diet: DietaryPreference, target_calories: float,
     meals_per_day: int = 3, allergens: Optional[List[str]] = None,
     days: int = 7, secondary_cuisines: Optional[List[str]] = None,
+    seed: Optional[int] = None,
 ) -> List[MealPlan]:
     """Generate a `days`-day rotation that cycles through compatible
     meals before repeating. Accepts optional secondary cuisines to
     draw from when the primary is exhausted. Each day is portion-scaled
     to the target (same accuracy fix as :func:`assemble_day`).
+
+    The ``seed`` parameter makes plan generation reproducible — passing the
+    same seed twice produces the same week. See audit finding F44.
     """
+    rng = random.Random(seed) if seed is not None else random
     allergens = allergens or []
     out: List[MealPlan] = []
     cuisines = [cuisine] + (secondary_cuisines or [])
@@ -752,20 +849,23 @@ def assemble_week(
         base_picks: List[MealItem] = []
         for slot, weight in layout:
             slot_target = target_calories * weight
+            # For 5-meal layout, slot may be "snack_1"/"snack_2" — map to
+            # "snack" for pool filtering then stamp the slot back on.
+            pool_slot = "snack" if slot in {"snack_1", "snack_2"} else slot
             chosen = None
             for cu in cuisines:
                 pool = [m for m in filter_compatible(diet, allergens)
-                        if m.cuisine == cu and m.slot == slot]
+                        if m.cuisine == cu and m.slot == pool_slot]
                 if not pool:
                     continue
-                used = used_by_slot[slot]
+                used = used_by_slot.get(slot, [])
                 fresh = [m for m in pool if (m.name, m.cuisine) not in used]
                 if not fresh:
                     fresh = pool
                 fresh.sort(key=lambda m: (abs(m.calories - slot_target),
-                                          random.random()))
+                                          rng.random()))
                 chosen = fresh[0]
-                used_by_slot[slot].append((chosen.name, chosen.cuisine))
+                used_by_slot.setdefault(slot, []).append((chosen.name, chosen.cuisine))
                 break
 
             if chosen is None:
@@ -774,9 +874,14 @@ def assemble_week(
                 if pool:
                     pool.sort(key=lambda m: abs(m.calories - slot_target))
                     chosen = pool[0]
-                    used_by_slot[slot].append((chosen.name, chosen.cuisine))
+                    used_by_slot.setdefault(slot, []).append((chosen.name, chosen.cuisine))
 
             if chosen:
+                # Stamp disambiguated slot name on snack variants.
+                if slot != chosen.slot:
+                    import copy as _copy
+                    chosen = _copy.copy(chosen)
+                    chosen.slot = slot
                 base_picks.append(chosen)
 
         # Portion-scale the day to the target.

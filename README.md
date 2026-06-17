@@ -1,4 +1,4 @@
-# Fitness Engine v2.2.1 — Evidence-Based Training & Meal Plan Generator
+# Fitness Engine v2.3.0 — Evidence-Based Training & Meal Plan Generator
 
 A deterministic Python engine that turns a client profile into a traceable training plan, nutrition target, weekly external-recipe meal plan, and coaching notes.
 
@@ -9,18 +9,19 @@ The engine is grounded in the RippedBody / Muscle & Strength Pyramid approach an
 - **Training plans**: split selection, movement-pattern exercise selection, RIR/repetition targets, warm-up/cool-down, cardio zones, progression and periodisation notes.
 - **Volume audit**: the generated schedule is compared with prescribed weekly sets per muscle group, with differences surfaced in the output for coaching adjustment.
 - **Optional load guidance**: provide current working weights for key lifts and the schedule will include estimated 1RM and conservative starting-load guidance.
-- **Nutrition and health-reference targets**: Mifflin-St Jeor BMR/TDEE, body-fat-aware fat-loss rates, Alpert max-deficit safeguard, goal-specific calorie targets, diet-aware macros, and anthropometric indices (WHtR, WHR, ABSI, Devine IBW).
+- **Nutrition and health-reference targets**: Mifflin-St Jeor BMR/TDEE, body-fat-aware fat-loss rates, Alpert max-deficit safeguard, goal-specific calorie targets, diet-aware macros, and anthropometric indices (WHtR, WHR, ABSI with z-score, Devine IBW).
 - **7-day recipe meal plans**: external recipe database with diet/allergen filters, calorie scaling, protein/fibre quality checks, shopping list and alternatives.
 - **Trainee classification**: RippedBody-style 9-category physique/strategy classification with pitfalls and recommendations.
-- **Safety signals**: basic red-flag fields can mark a plan as requiring medical review before starting. This is not a medical screening substitute.
+- **Safety signals**: basic red-flag fields can mark a plan as requiring medical review before starting. A minimal health-screen questionnaire populates these flags from intake. This is not a medical screening substitute.
 - **Review utilities**: calculators for adaptive TDEE, macro cycling, reverse dieting and macro adjustments are exposed for coaching workflows.
 
 ## Current State
 
 - Static analysis clean with Ruff.
-- 91 passing tests plus 22 subtests.
+- 92 passing tests plus 3 subtests (see `tests/` for the regression suite added in 2.3.0).
 - Clean, focused repository structure.
 - Package metadata included via `pyproject.toml` for editable installs.
+- Version 2.3.0 addresses the critical and major findings from the engineering audit; see `CHANGELOG.md` for the full remediation list.
 
 ## Quickstart
 

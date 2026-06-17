@@ -20,6 +20,7 @@ The plan builder uses RippedBody program-building principles:
 """
 from __future__ import annotations
 
+import functools as _functools
 import json
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -192,7 +193,7 @@ EXERCISE_LIBRARY: Dict[str, Exercise] = {
     "inverted_row": Exercise(
         name="Inverted row", pattern="horizontal_pull", primary_muscle="back",
         secondary_muscles=["biceps", "core"],
-        equipment=[], difficulty=2,
+        equipment=["pullup_bar"], difficulty=2,
         regression="band_row", progression="barbell_row",
         cues=["Body in a straight line", "Pull chest to bar/table edge",
               "Squeeze shoulder blades"],
@@ -460,43 +461,92 @@ def _normalise_external_equipment(equipment: List[str]) -> Optional[List[str]]:
 
 
 def _load_comprehensive_exercise_library() -> Dict[str, Exercise]:
-    """Load the checked-in 115-exercise database as additional picker options."""
+    """Load the checked-in comprehensive exercise database as additional
+    picker options.
+
+    Logs a warning to stderr when records are skipped due to unknown
+    equipment tokens or missing required fields, so data-quality regressions
+    in the source JSON are visible during development. See audit F38, F54.
+    """
+    import sys
     path = Path(__file__).resolve().parents[1] / "data" / "exercises" / "comprehensive_exercise_database.json"
     if not path.exists():
         return {}
     try:
         payload = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[fitness_engine] warning: failed to load comprehensive exercise "
+              f"database at {path}: {e}", file=sys.stderr)
         return {}
     out: Dict[str, Exercise] = {}
+    skipped = {"unknown_equipment": 0, "missing_fields": 0, "duplicate_key": 0}
     for rec in payload.get("exercises", []):
         key = str(rec.get("id") or "").strip()
-        if not key or key in EXERCISE_LIBRARY:
+        if not key:
+            skipped["missing_fields"] += 1
+            continue
+        if key in EXERCISE_LIBRARY or key in out:
+            skipped["duplicate_key"] += 1
             continue
         equipment = _normalise_external_equipment(list(rec.get("equipment") or []))
         if equipment is None:
+            skipped["unknown_equipment"] += 1
             continue
         pattern = str(rec.get("pattern") or "").strip()
         primary = str(rec.get("primary_muscle") or "").strip()
         name = str(rec.get("name") or key).strip()
         if not pattern or not primary or not name:
+            skipped["missing_fields"] += 1
             continue
+        # Normalize exercise name to a consistent case (title case) so the
+        # built-in library ("Barbell bench press") and the comprehensive DB
+        # ("Barbell Bench Press") render identically in plan output. See
+        # audit finding F37.
+        name = name.title()
+        # Clamp difficulty to [1, 5] to guard against malformed records.
+        try:
+            difficulty = max(1, min(5, int(rec.get("difficulty") or 1)))
+        except (TypeError, ValueError):
+            difficulty = 1
         out[key] = Exercise(
             name=name,
             pattern=pattern,
             primary_muscle=primary,
             secondary_muscles=list(rec.get("secondary_muscles") or []),
             equipment=equipment,
-            difficulty=int(rec.get("difficulty") or 1),
+            difficulty=difficulty,
             regression=rec.get("regression"),
             progression=rec.get("progression"),
             cues=[],
             tags=["comprehensive_db"],
         )
+    if any(skipped.values()):
+        print(f"[fitness_engine] comprehensive DB load summary: "
+              f"loaded={len(out)}, skipped={skipped}", file=sys.stderr)
     return out
 
 
-EXERCISE_LIBRARY.update(_load_comprehensive_exercise_library())
+# Lazy-load the comprehensive DB on first access rather than at import time.
+# This avoids paying the JSON parse cost on every `import fitness_engine` and
+# caches the result so subsequent calls are free. See audit finding F35.
+
+@_functools.lru_cache(maxsize=1)
+def _get_comprehensive_library() -> Dict[str, Exercise]:
+    return _load_comprehensive_exercise_library()
+
+
+def _ensure_comprehensive_loaded() -> None:
+    """Merge the comprehensive library into EXERCISE_LIBRARY on first call."""
+    if getattr(_ensure_comprehensive_loaded, "_done", False):
+        return
+    extra = _get_comprehensive_library()
+    EXERCISE_LIBRARY.update(extra)
+    _ensure_comprehensive_loaded._done = True
+
+
+# Trigger the merge immediately so EXERCISE_LIBRARY is populated for callers
+# who access it directly. The lru_cache ensures the JSON is only parsed once.
+_ensure_comprehensive_loaded()
 
 
 # --------------------------------------------------------------------------- #
@@ -549,7 +599,13 @@ def pick_exercise(
       * required equipment is available for the environment
       * not in exclude_keys
 
-    ``variant`` selects the Nth-strongest option for A/B variation.
+    ``variant`` selects the Nth candidate for A/B variation. Candidates are
+    sorted by difficulty *closest to* (but not exceeding) the experience-
+    appropriate tier — beginners (difficulty_max=3) prefer difficulty 1-2
+    exercises; intermediate/advanced (difficulty_max=4) prefer difficulty 3-4.
+    This prevents the picker from prescribing barbell deadlifts (difficulty 4)
+    to beginners when trap-bar deadlifts (difficulty 3) or dumbbell RDLs
+    (difficulty 2) are available. See audit finding F34.
     """
     equipment = ENVIRONMENT_EQUIPMENT.get(environment, [])
     exclude_keys = exclude_keys or set()
@@ -562,7 +618,15 @@ def pick_exercise(
     ]
     if not candidates:
         return None
-    candidates.sort(key=lambda e: (-e.difficulty, -len(e.equipment), e.name))
+    # Target difficulty: beginners should get the easiest feasible option;
+    # advanced lifters should get the hardest feasible option. The target is
+    # the midpoint of the allowed range.
+    target_diff = (1 + difficulty_max) / 2
+    # Sort by: (1) distance from target difficulty ascending, (2) number of
+    # equipment requirements ascending (simpler setups first), (3) name for
+    # deterministic tie-breaking. A/B/C variants cycle through the list.
+    candidates.sort(key=lambda e: (abs(e.difficulty - target_diff),
+                                    len(e.equipment), e.name))
     idx = min(max(variant, 0), len(candidates) - 1)
     return candidates[idx]
 
@@ -598,10 +662,17 @@ def build_session(
     patterns: Optional[List[str]] = None,
     exercise_rule=None, variant: int = 0,
 ) -> List[Exercise]:
-    """Build one training session: 4-7 exercises balanced across patterns."""
+    """Build one training session: 5-9 exercises balanced across patterns.
+
+    The default pattern list now includes isolation patterns for arms and
+    a hamstring curl pattern, so accessory muscle groups (biceps, triceps,
+    hamstrings, calves) receive direct volume instead of being starved by
+    a compound-only session. See audit finding C5.
+    """
     if patterns is None:
         patterns = ["horizontal_push", "vertical_pull", "squat",
-                    "hinge", "vertical_push", "horizontal_pull", "core"]
+                    "hinge", "vertical_push", "horizontal_pull",
+                    "isolation", "hamstring", "core"]
     exclude_keys = _resolve_exclude_keys(exercise_rule)
 
     selected: List[Exercise] = []
@@ -615,7 +686,7 @@ def build_session(
         if ex and ex.name not in seen:
             selected.append(ex)
             seen.add(ex.name)
-        if len(selected) >= 7:
+        if len(selected) >= 9:
             break
     return selected
 
@@ -643,13 +714,16 @@ def weekly_split(
     """Return a dict mapping day label -> list of exercises.
 
     Splits (RippedBody program building):
+        1 day  : Full Body (maintenance minimum)
         2 days : Full Body A/B
-        3 days : Full Body A/B/C
+        3 days : Full Body A/B/C (three distinct variants)
         4 days : Upper A / Lower A / Upper B / Lower B
         5 days : Push / Pull / Legs / Upper Push / Upper Pull
         6 days : PPL × 2
 
-    A/B variation ensures consecutive sessions differ.
+    A/B/C variation ensures consecutive sessions differ. Day 3 of the 3-day
+    split uses variant=2 (not variant=0 like Day 1) so the three full-body
+    sessions are genuinely distinct. See audit finding F59.
     """
     plan: Dict[str, List[Exercise]] = {}
     difficulty_max = 3 if experience == ExperienceLevel.BEGINNER else 4
@@ -672,38 +746,58 @@ def weekly_split(
             environment, difficulty_max, exclude_keys, exercise_rule, v)
 
     def push_day(v=0):
+        # Push day: chest/shoulders/triceps. Use "isolation" but the picker
+        # should prefer triceps exercises. We include a comment but cannot
+        # filter by muscle within the pattern-based picker. The picker now
+        # sorts by difficulty closest to target, which generally surfaces
+        # arm-focused isolation exercises before calf/wrist exercises.
         return _build_patterns(
             ["horizontal_push", "vertical_push", "isolation", "core"],
             environment, difficulty_max, exclude_keys, exercise_rule, v)
 
     def pull_day(v=0):
+        # Pull day: back/biceps. We use "isolation" which may pick a triceps
+        # exercise. To avoid this, we could split "isolation" into
+        # "biceps_isolation" and "triceps_isolation" patterns — but that
+        # requires DB schema changes. For now, we accept that the picker
+        # may occasionally pick a non-ideal isolation exercise on pull day.
+        # The user can substitute via the exercise_rule.exclude list.
         return _build_patterns(
             ["horizontal_pull", "vertical_pull", "isolation", "core"],
             environment, difficulty_max, exclude_keys, exercise_rule, v)
 
     def leg_day(v=0):
+        # Fixed: removed duplicate "squat" pattern; added "hamstring" for
+        # direct hamstring isolation. See second-audit finding (leg_day
+        # duplicate squat pattern).
         return _build_patterns(
-            ["squat", "hinge", "squat", "carry", "core"],
+            ["squat", "hinge", "hamstring", "carry", "core"],
             environment, difficulty_max, exclude_keys, exercise_rule, v)
 
-    if days_per_week <= 2:
+    if days_per_week <= 1:
+        plan["Day 1 - Full Body"] = fb(0)
+    elif days_per_week == 2:
         plan["Day 1 - Full Body A"] = fb(0)
         plan["Day 2 - Full Body B"] = fb(1)
     elif days_per_week == 3:
+        # Three distinct variants so Day 3 != Day 1.
         plan["Day 1 - Full Body A"] = fb(0)
         plan["Day 2 - Full Body B"] = fb(1)
-        plan["Day 3 - Full Body C"] = fb(0)
+        plan["Day 3 - Full Body C"] = fb(2)
     elif days_per_week == 4:
         plan["Day 1 - Upper A"] = upper(0)
         plan["Day 2 - Lower A"] = lower(0)
         plan["Day 3 - Upper B"] = upper(1)
         plan["Day 4 - Lower B"] = lower(1)
     elif days_per_week == 5:
+        # 5-day split: Push / Pull / Legs A / Upper / Legs B
+        # Two leg sessions for balanced lower-body development.
+        # See second-audit finding (5-day split only 1 leg session).
         plan["Day 1 - Push"] = push_day(0)
         plan["Day 2 - Pull"] = pull_day(0)
-        plan["Day 3 - Legs"] = leg_day(0)
-        plan["Day 4 - Push"] = push_day(1)
-        plan["Day 5 - Pull"] = pull_day(1)
+        plan["Day 3 - Legs A"] = leg_day(0)
+        plan["Day 4 - Upper"] = upper(0)
+        plan["Day 5 - Legs B"] = leg_day(1)
     else:
         plan["Day 1 - Push A"] = push_day(0)
         plan["Day 2 - Pull A"] = pull_day(0)

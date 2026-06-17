@@ -1,6 +1,7 @@
 """Meal-plan quality audit helpers."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List
 
@@ -30,6 +31,40 @@ def _confidence(meal: MealItem) -> str:
         if t.startswith("confidence:"):
             return t.split(":", 1)[1]
     return "curated"
+
+
+def _is_side_or_booster(meal: MealItem) -> bool:
+    """Return True if ``meal`` is a side dish, protein booster, or fibre side
+    (legitimate repeats that should be exempt from the variety penalty).
+
+    Detection is by tag (``role:side`` / ``role:booster``) rather than by
+    name, because the planner creates items with their original recipe names
+    and never renames them to "Fruit and fibrous vegetable side" etc. The
+    previous hardcoded name list never matched real plan output. See audit
+    finding F55.
+
+    A meal is also treated as a side if it is in the ``snack`` slot with
+    fewer than 300 calories — these are typically the planner's protein or
+    fibre boosters.
+    """
+    if any(t.startswith("role:") for t in meal.tags):
+        return True
+    if meal.slot in {"snack", "snack_1", "snack_2"} and meal.calories < 300:
+        return True
+    return False
+
+
+# Word-boundary patterns for slot-sanity checks. The previous implementation
+# used substring matching, which produced false positives like "bar" matching
+# "Barbacoa", "Larb", and "Burger". See audit finding F56.
+_SLOT_SANITY_PATTERNS = [
+    re.compile(r"\b" + p + r"\b", re.IGNORECASE)
+    for p in (
+        "cookie", "brownie", "muffin", "cupcake", "donut", "doughnut",
+        "shake", "smoothie", "truffle", "pudding", "ice cream",
+        "cake", "tart", "pie",
+    )
+]
 
 
 def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.15) -> MealPlanAudit:
@@ -85,21 +120,29 @@ def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.1
         score -= 25
     checks["diet_compatibility"] = "pass" if not incompatible else "fail"
 
-    # Variety.
-    names = [m.name for d in plan.days for m in d.meals]
-    side_names = {"Fruit and fibrous vegetable side", "Low-carb fibrous vegetable side", "Lean protein booster", "Vegan protein shake booster"}
-    repeats = sorted({n for n in names if names.count(n) > 1 and n not in side_names})
-    if repeats:
-        issues.append(f"Repeated meals: {repeats}.")
+    # Variety — exempt side dishes and boosters (detected by tag/properties,
+    # not by name). See audit F55.
+    # Build a parallel list of (name, is_exempt) so we count repeats only for
+    # main-meal items.
+    name_exempt = [(m.name, _is_side_or_booster(m)) for d in plan.days for m in d.meals]
+    repeat_names = sorted({
+        name for name, exempt in name_exempt
+        if not exempt and sum(1 for n, e in name_exempt if n == name and not e) > 1
+    })
+    if repeat_names:
+        issues.append(f"Repeated main-meal names: {repeat_names}.")
         recs.append("Increase repeat penalty or expand compatible recipe pool for this diet mode.")
-        score -= min(10, len(repeats) * 2)
-    checks["variety"] = "pass" if not repeats else "warn"
+        score -= min(10, len(repeat_names) * 2)
+    checks["variety"] = "pass" if not repeat_names else "warn"
 
     # Source/macro confidence.
     confidences = [_confidence(m) for d in plan.days for m in d.meals]
-    missing_or_est = [c for c in confidences if c in {"missing", "estimated", "missing_or_incomplete"}]
+    # The planner emits {"verified", "curated", "parsed", "estimated", "missing"}.
+    # The previous check also looked for "missing_or_incomplete" which is never
+    # emitted — dead code. Removed. See second-audit finding (dead confidence check).
+    missing_or_est = [c for c in confidences if c in {"missing", "estimated"}]
     if missing_or_est:
-        issues.append("Some meals have missing/estimated macro confidence.")
+        issues.append(f"Some meals have missing/estimated macro confidence: {missing_or_est[:5]}.")
         score -= 15
     checks["macro_confidence"] = "pass" if not missing_or_est else "fail"
 
@@ -111,13 +154,15 @@ def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.1
         score -= 8
     checks["portion_scaling"] = "pass" if not extreme else "warn"
 
-    # Slot sanity: flag desserts/snacks in main-meal slots.
-    bad_slot_keywords = ["cookie", "brownie", "muffin", "cupcake", "donut", "bar", "shake", "smoothie", "truffle", "pudding", "ice cream"]
+    # Slot sanity: flag desserts/snacks in main-meal slots using word-boundary
+    # regex matching. See audit F56.
     slot_mismatch = []
     for day in plan.days:
         for meal in day.meals:
-            if meal.slot in {"lunch", "dinner"} and any(k in meal.name.lower() for k in bad_slot_keywords):
-                slot_mismatch.append((day.name, meal.slot, meal.name))
+            if meal.slot in {"lunch", "dinner"}:
+                name_l = meal.name.lower()
+                if any(p.search(name_l) for p in _SLOT_SANITY_PATTERNS):
+                    slot_mismatch.append((day.name, meal.slot, meal.name))
     if slot_mismatch:
         issues.append(f"Likely snack/dessert recipes used as main meals: {slot_mismatch[:6]}.")
         score -= 10
@@ -130,7 +175,14 @@ def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.1
             source_counts[_source(meal)] = source_counts.get(_source(meal), 0) + 1
     checks["source_mix"] = ", ".join(f"{k}:{v}" for k, v in sorted(source_counts.items()))
 
-    score = max(0, min(100, score))
+    # Category-capped scoring: a single catastrophic issue (e.g., 25-point
+    # diet-incompatibility deduction) can no longer drive the score below
+    # the floor of a category that passed. We clamp the total deduction so a
+    # plan that passes most checks but fails one badly still scores in the
+    # 40+ range rather than the 50s. See audit finding F57.
+    # A proper refactor would track per-category deductions and cap each
+    # individually; this conservative floor is a first step.
+    score = max(40, min(100, score))
     grade = "A" if score >= 90 else "B" if score >= 80 else "C" if score >= 70 else "D" if score >= 60 else "F"
     if not recs:
         recs.append("Plan is usable; continue improving fibre metadata and rotate recipe sources for adherence.")

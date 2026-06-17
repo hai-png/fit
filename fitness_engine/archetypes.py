@@ -62,8 +62,14 @@ class ExperienceLevel(str, Enum):
 
 
 class AgeGroup(str, Enum):
-    """Coarse age buckets."""
-    YOUNG = "young"      # 18-30
+    """Coarse age buckets.
+
+    Note: ``ClientProfile`` accepts ages 13+, so ``YOUNG`` covers 13-30
+    (including adolescents). The narrower 18-30 range cited in older
+    comments was incorrect; the engine does not have a separate TEEN
+    bucket. See audit finding F5.
+    """
+    YOUNG = "young"      # 13-30 (includes adolescents)
     ADULT = "adult"      # 31-45
     MIDDLE = "middle"    # 46+
 
@@ -137,6 +143,12 @@ class ArchetypeSignature:
 
         Format: GOAL-SOMA-EXP-AGE-SEX-ACT-DIET-ENV-LEN
         e.g. 'MUS-ECTO-BEG-YOUN-M-SED-OMNI-HOM-60'
+
+        The prefix lengths are chosen so that no two enum values within the
+        same dimension produce the same code segment. A collision check runs
+        at module import (see ``_validate_code_uniqueness`` below) so that
+        adding a new enum value that would create a collision is caught
+        immediately. See audit finding F2.
         """
         return (
             f"{self.goal.value[:3].upper()}-"
@@ -159,6 +171,51 @@ _ENV_CODES = {
     TrainingEnvironment.HOME_GYM: "HGY",
     TrainingEnvironment.GYM_FULL: "GYM",
 }
+
+# Per-dimension prefix lengths used by ``code()``. Centralized here so the
+# collision validator can mirror the truncation logic.
+_CODE_PREFIX_LENGTHS = {
+    "goal": 3,
+    "somatotype": 4,
+    "experience": 3,
+    "age_group": 4,
+    "activity": 3,
+    "diet": 4,
+}
+
+
+def _validate_code_uniqueness() -> None:
+    """Verify that no two enum values within a dimension produce the same
+    code segment after truncation. Raises ``AssertionError`` on collision.
+
+    This guard runs at module import so a future enum addition that would
+    break the code's uniqueness is caught immediately rather than silently
+    producing ambiguous signature codes. See audit finding F2.
+    """
+    dimensions = [
+        ("goal", GoalArchetype),
+        ("somatotype", Somatotype),
+        ("experience", ExperienceLevel),
+        ("age_group", AgeGroup),
+        ("activity", ActivityLevel),
+        ("diet", DietaryPreference),
+    ]
+    for name, enum_cls in dimensions:
+        n = _CODE_PREFIX_LENGTHS[name]
+        seen: dict = {}
+        for member in enum_cls:
+            seg = member.value[:n].upper()
+            if seg in seen:
+                raise AssertionError(
+                    f"ArchetypeSignature.code() collision in dimension "
+                    f"'{name}': '{member.value}' and '{seen[seg].value}' "
+                    f"both truncate to '{seg}' at length {n}. "
+                    f"Increase the prefix length for this dimension."
+                )
+            seen[seg] = member
+
+
+_validate_code_uniqueness()
 
 
 # --------------------------------------------------------------------------- #
@@ -198,13 +255,22 @@ class TraineeProfile:
 # --------------------------------------------------------------------------- #
 @dataclass
 class ArchetypeProfile:
-    """Human-friendly description and coaching notes for an archetype."""
+    """Human-friendly description and coaching notes for an archetype.
+
+    The optional ``showcase_defaults`` field carries a ``(age, sex, height_cm,
+    weight_kg, body_fat_pct)`` tuple used by the CLI's ``showcase`` command
+    to render a representative plan for this archetype. Co-locating the
+    defaults here (rather than in a separate dict in ``cli.py``) prevents
+    drift if a nickname is renamed. See audit finding F75.
+    """
     signature: ArchetypeSignature
     nickname: str
     summary: str
     strengths: List[str]
     risks: List[str]
     emphasis: List[str]
+    # Optional (age, sex, height_cm, weight_kg, body_fat_pct) for the showcase.
+    showcase_defaults: Optional[tuple] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -235,18 +301,41 @@ def iter_signatures():
 
 
 def signature_from_dict(d: Dict) -> ArchetypeSignature:
-    """Build a signature from a dict of string values."""
-    return ArchetypeSignature(
-        goal=GoalArchetype(d["goal"]),
-        somatotype=Somatotype(d["somatotype"]),
-        experience=ExperienceLevel(d["experience"]),
-        age_group=AgeGroup(d["age_group"]),
-        sex=Sex(d["sex"]),
-        activity=ActivityLevel(d["activity"]),
-        diet=DietaryPreference(d["diet"]),
-        environment=TrainingEnvironment(d["environment"]),
-        session=SessionLength(d["session"]),
-    )
+    """Build a signature from a dict of string values.
+
+    Each field is constructed individually so that a typo (e.g.
+    ``"begginer"``) produces a clear error message naming the offending
+    key and the invalid value, rather than a bare ``ValueError`` from the
+    enum constructor with no context. See audit finding F3.
+    """
+    field_specs = [
+        ("goal", GoalArchetype),
+        ("somatotype", Somatotype),
+        ("experience", ExperienceLevel),
+        ("age_group", AgeGroup),
+        ("sex", Sex),
+        ("activity", ActivityLevel),
+        ("diet", DietaryPreference),
+        ("environment", TrainingEnvironment),
+        ("session", SessionLength),
+    ]
+    kwargs = {}
+    for key, enum_cls in field_specs:
+        if key not in d:
+            raise KeyError(
+                f"signature_from_dict: missing required key '{key}'. "
+                f"Provided keys: {sorted(d.keys())}"
+            )
+        raw = d[key]
+        try:
+            kwargs[key] = enum_cls(raw)
+        except ValueError:
+            valid = [m.value for m in enum_cls]
+            raise ValueError(
+                f"signature_from_dict: invalid value {raw!r} for key "
+                f"'{key}'. Valid values: {valid}"
+            ) from None
+    return ArchetypeSignature(**kwargs)
 
 
 # --------------------------------------------------------------------------- #
@@ -284,6 +373,7 @@ CURATED_PROFILES: Dict[str, ArchetypeProfile] = {
             "Carb-forward nutrition around training",
             "Heavy compound lifts 3-4×/week, minimal cardio",
         ],
+        showcase_defaults=(22, Sex.MALE, 180, 64, 11),
     ),
     "fat_but_muscled": ArchetypeProfile(
         signature=ArchetypeSignature(
@@ -316,6 +406,7 @@ CURATED_PROFILES: Dict[str, ArchetypeProfile] = {
             "3 days/week training focused on compound lifts",
             "Maintain strength; reduce accessory volume",
         ],
+        showcase_defaults=(35, Sex.MALE, 178, 92, 25),
     ),
     "skinny_fat": ArchetypeProfile(
         signature=ArchetypeSignature(
@@ -348,6 +439,7 @@ CURATED_PROFILES: Dict[str, ArchetypeProfile] = {
             "Focus on progressive overload and compound lifts",
             "Prioritise protein and patience",
         ],
+        showcase_defaults=(30, Sex.MALE, 175, 78, 22),
     ),
     "home_beginner": ArchetypeProfile(
         signature=ArchetypeSignature(
@@ -379,6 +471,7 @@ CURATED_PROFILES: Dict[str, ArchetypeProfile] = {
             "Maintenance calories with adequate protein (1.6 g/kg)",
             "Consistency over intensity; 3 sessions/week",
         ],
+        showcase_defaults=(45, Sex.FEMALE, 165, 68, 28),
     ),
     "vegan_builder": ArchetypeProfile(
         signature=ArchetypeSignature(
@@ -410,6 +503,7 @@ CURATED_PROFILES: Dict[str, ArchetypeProfile] = {
             "Supplement: B12, D3, algae omega-3",
             "Calorie surplus prioritising calorie-dense plant foods",
         ],
+        showcase_defaults=(27, Sex.MALE, 178, 74, 12),
     ),
 }
 

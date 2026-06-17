@@ -14,7 +14,7 @@ Quickstart
 >>> print(rec.archetype_signature, rec.nutrition.macros.protein_g)
 """
 from .archetypes import (
-    ActivityLevel, AgeGroup, ArchetypeSignature,
+    ActivityLevel, AgeGroup, ArchetypeProfile, ArchetypeSignature,
     DietaryPreference, ExperienceLevel, GoalArchetype,
     SessionLength, Sex, Somatotype, TrainingEnvironment,
     TraineeCategory, TraineeProfile,
@@ -65,7 +65,7 @@ from .exercise_plans import (
     ENVIRONMENT_EQUIPMENT,
 )
 from .questionnaires import (
-    DIETARY, FITNESS_HISTORY, GOALS, FULL_INTAKE,
+    DIETARY, FITNESS_HISTORY, GOALS, HEALTH_SCREEN, FULL_INTAKE,
     intake_report, IntakeReport,
 )
 from .protocols import (
@@ -79,11 +79,13 @@ from .recommender import (
 )
 from .persistence import (
     init_db, store_client, add_weight, add_adherence, client_summary,
+    delete_client, schema_version,
 )
+from .exercise_database import ExerciseDatabase, ScrapedExercise
 
 __all__ = [
     # archetypes
-    "ActivityLevel", "AgeGroup", "ArchetypeSignature",
+    "ActivityLevel", "AgeGroup", "ArchetypeProfile", "ArchetypeSignature",
     "DietaryPreference", "ExperienceLevel", "GoalArchetype",
     "SessionLength", "Sex", "Somatotype", "TrainingEnvironment",
     "TraineeCategory", "TraineeProfile", "classify_trainee",
@@ -129,7 +131,7 @@ __all__ = [
     "EXERCISE_LIBRARY", "Exercise", "weekly_split", "build_session",
     "ENVIRONMENT_EQUIPMENT",
     # questionnaires
-    "DIETARY", "FITNESS_HISTORY", "GOALS", "FULL_INTAKE",
+    "DIETARY", "FITNESS_HISTORY", "GOALS", "HEALTH_SCREEN", "FULL_INTAKE",
     "intake_report", "IntakeReport",
     # protocols
     "ExercisePlanProtocol", "MealPlanProtocol", "CompleteProfileProtocol",
@@ -140,6 +142,9 @@ __all__ = [
     "Recommender",
     # persistence
     "init_db", "store_client", "add_weight", "add_adherence", "client_summary",
+    "delete_client", "schema_version",
+    # exercise database
+    "ExerciseDatabase", "ScrapedExercise",
 ]
 
-__version__ = "2.2.1"
+__version__ = "2.4.0"

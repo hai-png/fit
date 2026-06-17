@@ -78,7 +78,17 @@ DIETARY = [
         qtype=QuestionType.SINGLE,
         choices=[
             Choice("omnivore", "Omnivore (eat everything)"),
+            Choice("balanced", "Balanced (no exclusions, mixed macros)"),
+            Choice("vegetarian", "Vegetarian (no meat, dairy + eggs OK)"),
             Choice("vegan", "Vegan (no animal products)"),
+            Choice("pescatarian", "Pescatarian (fish + vegetarian)"),
+            Choice("pollo_pescatarian", "Pollo-pescatarian (poultry + fish + veg)"),
+            Choice("mediterranean", "Mediterranean (fish, veg, olive oil, whole grains)"),
+            Choice("keto", "Keto (<50 g carbs/day)"),
+            Choice("low_carb", "Low-carb (50-130 g carbs/day)"),
+            Choice("paleo", "Paleo (meat, fish, veg, fruit, nuts; no grains/dairy)"),
+            Choice("gluten_free", "Gluten-free (medical or preference)"),
+            Choice("high_protein", "High-protein (≥2.0 g/kg body weight)"),
         ],
     ),
     Question(
@@ -151,7 +161,7 @@ FITNESS_HISTORY = [
         id="fh_days_per_week",
         prompt="Days per week available to train",
         qtype=QuestionType.INT,
-        min_value=2, max_value=6,
+        min_value=1, max_value=6,
     ),
     Question(
         id="fh_session_length",
@@ -213,12 +223,73 @@ GOALS = [
 
 
 # --------------------------------------------------------------------------- #
+# 4. Health screening (minimal)                                                #
+# --------------------------------------------------------------------------- #
+# A minimal health screen that populates ``ClientProfile.medical_flags``.
+# The engine's recommender surfaces these flags as warnings; the questionnaire
+# must ask about them so the flags actually get set. See audit finding F66.
+HEALTH_SCREEN = [
+    Question(
+        id="h_pregnant_postpartum",
+        prompt="Are you pregnant or less than 6 weeks postpartum?",
+        qtype=QuestionType.SINGLE,
+        required=False,
+        choices=[
+            Choice("no", "No"),
+            Choice("yes", "Yes"),
+        ],
+    ),
+    Question(
+        id="h_recent_surgery",
+        prompt="Have you had surgery in the last 3 months?",
+        qtype=QuestionType.SINGLE,
+        required=False,
+        choices=[
+            Choice("no", "No"),
+            Choice("yes", "Yes"),
+        ],
+    ),
+    Question(
+        id="h_eating_disorder",
+        prompt="Have you been diagnosed with or are you recovering from an eating disorder?",
+        qtype=QuestionType.SINGLE,
+        required=False,
+        choices=[
+            Choice("no", "No"),
+            Choice("yes", "Yes"),
+        ],
+    ),
+    Question(
+        id="h_cardiac",
+        prompt="Have you been diagnosed with a cardiac condition (heart disease, arrhythmia, etc.)?",
+        qtype=QuestionType.SINGLE,
+        required=False,
+        choices=[
+            Choice("no", "No"),
+            Choice("yes", "Yes"),
+        ],
+    ),
+    Question(
+        id="h_chest_pain",
+        prompt="Have you experienced unexplained chest pain or fainting during exercise?",
+        qtype=QuestionType.SINGLE,
+        required=False,
+        choices=[
+            Choice("no", "No"),
+            Choice("yes", "Yes"),
+        ],
+    ),
+]
+
+
+# --------------------------------------------------------------------------- #
 # Full intake sequence                                                        #
 # --------------------------------------------------------------------------- #
 FULL_INTAKE = [
     ("Diet & Preferences", DIETARY),
     ("Fitness History", FITNESS_HISTORY),
     ("Goals", GOALS),
+    ("Health Screen", HEALTH_SCREEN),
 ]
 
 

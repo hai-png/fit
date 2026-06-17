@@ -16,7 +16,13 @@ import os
 import sys
 from html import escape
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Only mutate sys.path if fitness_engine is not already importable (e.g.
+# when running from a checkout rather than an installed package). The
+# previous unconditional mutation was a side-effect on import.
+try:
+    import fitness_engine  # noqa: F401
+except ImportError:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fitness_engine import ClientProfile, Recommender, __version__
 
@@ -147,13 +153,14 @@ def render(rec, client_name: str = "Client") -> str:
     </div>''')
     html.append('</div>')
 
-    # Warnings / notes
+    # Warnings / notes — escape ALL strings to prevent XSS via
+    # user-supplied medical_flags keys. See second-audit finding (XSS).
     if rec.warnings or rec.notes:
         html.append('<div class="panel"><h2>Health & Lifestyle Notes</h2>')
         for w in rec.warnings:
-            html.append(f'<div class="warn">! {escape(w)}</div>')
+            html.append(f'<div class="warn">! {escape(str(w))}</div>')
         for note in rec.notes:
-            html.append(f'<div class="note">i {escape(note)}</div>')
+            html.append(f'<div class="note">i {escape(str(note))}</div>')
         if rec.intake_report.recommendations:
             html.append('<h3>Daily Habits</h3><ul>')
             for r in rec.intake_report.recommendations:
@@ -244,8 +251,24 @@ def render(rec, client_name: str = "Client") -> str:
     # Meal plan
     html.append('<div class="panel"><h2>Meal Plan</h2>')
     html.append(f'<p>Cuisines: {escape(" | ".join(n.cuisine))}</p>')
+    # Track snack position so 5-meal layouts render "Morning Snack" / "Afternoon Snack"
+    # rather than two identical "Snack" labels. See audit finding F78.
+    snack_position = 0
     for meal in n.meal_plan.meals:
-        html.append(f'<div class="day">{escape(meal.slot.title())}</div>')
+        slot_label = meal.slot.title()
+        # Render snack_1 / snack_2 with positional disambiguation.
+        if meal.slot in {"snack_1", "snack_2"} or meal.slot == "snack":
+            snack_position += 1
+            if meal.slot == "snack_1" or (meal.slot == "snack" and snack_position == 1):
+                slot_label = "Morning Snack"
+            elif meal.slot == "snack_2" or (meal.slot == "snack" and snack_position == 2):
+                slot_label = "Afternoon Snack"
+            else:
+                slot_label = f"Snack {snack_position}"
+        else:
+            # Reset snack counter when we leave snack territory.
+            snack_position = 0
+        html.append(f'<div class="day">{escape(slot_label)}</div>')
         html.append(f'<b>{escape(meal.name)}</b> '
                     f'<span class="tag">{meal.calories:.0f} kcal</span> '
                     f'<span class="tag">P {meal.protein_g:.0f}</span> '
@@ -298,6 +321,12 @@ def main():
     rec = Recommender(profile).recommend()
 
     html = render(rec, data.get("name", "Client"))
+    # Auto-create the output directory if it doesn't exist. Previously the
+    # script crashed with FileNotFoundError when the user supplied a path
+    # whose parent directory didn't exist (e.g., `output/foo.html` when
+    # `output/` hadn't been created). See audit finding F77.
+    out_dir = os.path.dirname(os.path.abspath(args.output))
+    os.makedirs(out_dir, exist_ok=True)
     with open(args.output, "w") as fh:
         fh.write(html)
     print(f"Wrote {args.output}  ({len(html):,} bytes)")

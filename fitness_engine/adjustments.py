@@ -19,6 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List
 
+from .archetypes import ExperienceLevel
+from .calculators import BULK_MONTHLY_RATE, FAT_LOSS_WEEKLY_RATE
+
 
 # --------------------------------------------------------------------------- #
 # Cut/bulk decision boundaries (rippedbody.com/cut-or-bulk)                  #
@@ -394,6 +397,10 @@ def metabolic_adaptation_info() -> MetabolicAdaptationInfo:
 # --------------------------------------------------------------------------- #
 # Expected rates of progress (by training status)                             #
 # --------------------------------------------------------------------------- #
+# The bulk monthly rates and fat-loss weekly rate are imported from
+# calculators.py (see top of file) so we have a single source of truth.
+# See audit finding F72.
+
 PROGRESS_RATES = {
     # RippedBody expected rates of progress by training status
     "muscle_gain_per_month_kg": {
@@ -401,33 +408,98 @@ PROGRESS_RATES = {
         "intermediate": (0.5, 1.0),  # 1-2 lbs/month
         "advanced": (0.25, 0.5),     # 0.5-1 lb/month
     },
+    # Re-export the canonical bulk monthly rates from calculators.py keyed
+    # by experience-level string. This guarantees the adjustment guidance
+    # and the calorie calculator use the same source of truth.
     "weight_gain_rate_per_month_pct": {
-        "beginner": 0.02,       # 2% body weight
-        "intermediate": 0.01,   # 1%
-        "advanced": 0.005,      # 0.5%
+        ExperienceLevel.BEGINNER.value: BULK_MONTHLY_RATE[ExperienceLevel.BEGINNER],
+        ExperienceLevel.INTERMEDIATE.value: BULK_MONTHLY_RATE[ExperienceLevel.INTERMEDIATE],
+        ExperienceLevel.ADVANCED.value: BULK_MONTHLY_RATE[ExperienceLevel.ADVANCED],
     },
-    "fat_loss_rate_per_week_pct": 0.0075,  # 0.75% body weight/week
+    "fat_loss_rate_per_week_pct": FAT_LOSS_WEEKLY_RATE,
 }
 
 
 # --------------------------------------------------------------------------- #
 # Initial calorie assessment (first 3-4 weeks)                                #
 # --------------------------------------------------------------------------- #
+@dataclass
+class InitialAssessmentGuidance:
+    """Structured initial-assessment guidance.
+
+    The legacy ``initial_assessment_guidance`` function returns a list of
+    strings with ASCII-art bullets that render poorly in HTML. This
+    dataclass provides the same information in a machine-readable form so
+    renderers can format it appropriately. See audit finding F73.
+    """
+    expected_rate_kg_per_week: float
+    wait_weeks: int
+    rules: List[Dict[str, str]]  # each: {"condition": ..., "action": ..., "adjustment": ...}
+    summary: str
+
+
 def initial_assessment_guidance(
     goal: str, expected_change_per_week_kg: float,
 ) -> List[str]:
     """Return guidance for assessing whether initial calculations are correct.
 
     Source: rippedbody.com/initial-adjustment/
+
+    Returns a list of strings for backwards compatibility. For a machine-
+    readable form, use :func:`initial_assessment_guidance_structured`.
+    See audit finding F73.
     """
     guidance = [
         f"Expected rate: ~{expected_change_per_week_kg:.2f} kg/week.",
         "Wait 3-4 weeks before assessing — ignore the first week (water shifts).",
         "If weight changes faster than expected after week 1:",
-        "  → Adjust calorie intake to correct the rate.",
-        "  → For cuts: if losing >1% BW/week, increase calories by 200-250.",
-        "  → For cuts: if losing <0.5% BW/week (after week 2), decrease by 200-250.",
-        "  → For bulks: if gaining >2% BW/month, decrease by 150 kcal.",
-        "  → For bulks: if gaining <0.5% BW/month (after week 3), increase by 150 kcal.",
+        "  -> Adjust calorie intake to correct the rate.",
+        "  -> For cuts: if losing >1% BW/week, increase calories by 200-250.",
+        "  -> For cuts: if losing <0.5% BW/week (after week 2), decrease by 200-250.",
+        "  -> For bulks: if gaining >2% BW/month, decrease by 150 kcal.",
+        "  -> For bulks: if gaining <0.5% BW/month (after week 3), increase by 150 kcal.",
     ]
     return guidance
+
+
+def initial_assessment_guidance_structured(
+    goal: str, expected_change_per_week_kg: float,
+) -> InitialAssessmentGuidance:
+    """Structured version of :func:`initial_assessment_guidance`.
+
+    Returns an :class:`InitialAssessmentGuidance` dataclass with machine-
+    readable fields. See audit finding F73.
+    """
+    rules = [
+        {
+            "condition": "Losing >1% BW/week (cut)",
+            "action": "increase calories",
+            "adjustment": "200-250 kcal/day",
+        },
+        {
+            "condition": "Losing <0.5% BW/week after week 2 (cut)",
+            "action": "decrease calories",
+            "adjustment": "200-250 kcal/day",
+        },
+        {
+            "condition": "Gaining >2% BW/month (bulk)",
+            "action": "decrease calories",
+            "adjustment": "150 kcal/day",
+        },
+        {
+            "condition": "Gaining <0.5% BW/month after week 3 (bulk)",
+            "action": "increase calories",
+            "adjustment": "150 kcal/day",
+        },
+    ]
+    return InitialAssessmentGuidance(
+        expected_rate_kg_per_week=round(expected_change_per_week_kg, 3),
+        wait_weeks=3,
+        rules=rules,
+        summary=(
+            f"Expected rate: ~{expected_change_per_week_kg:.2f} kg/week. "
+            f"Wait 3-4 weeks before assessing; ignore the first week "
+            f"(water shifts). Adjust calories per the rules if the trend "
+            f"diverges from the expected rate."
+        ),
+    )

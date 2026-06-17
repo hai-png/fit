@@ -39,13 +39,25 @@ def training_split(
     """Choose a split based on days/week (RippedBody Frequency Matrix).
 
     Simplified to the most common, proven setups:
+      1 day  : Single Full Body (maintenance minimum)
       2 days : Full Body A/B
       3 days : Full Body A/B/C
       4 days : Upper / Lower (A/B)
       5 days : Upper Push / Upper Pull / Lower (variant)
       6 days : Push/Pull/Legs × 2
     """
-    if days_per_week <= 2:
+    if days_per_week <= 1:
+        return TrainingSplit(
+            name="Full Body 1-day",
+            days=["Full Body"],
+            description=(
+                "A single weekly full-body session. This is the absolute "
+                "minimum for maintaining strength and muscle — progress will "
+                "be slow, but consistency is more important than frequency. "
+                "If you can train twice a week, switch to the 2-day split."
+            ),
+        )
+    if days_per_week == 2:
         return TrainingSplit(
             name="Full Body 2-day",
             days=["Full Body A", "Full Body B"],
@@ -75,11 +87,13 @@ def training_split(
         )
     if days_per_week == 5:
         return TrainingSplit(
-            name="Upper Push / Upper Pull / Legs",
-            days=["Push", "Pull", "Legs", "Upper Push", "Upper Pull"],
+            name="Push / Pull / Legs / Upper / Lower",
+            days=["Push", "Pull", "Legs A", "Upper", "Legs B"],
             description=(
-                "Five-day split alternating push/pull/legs. Higher frequency "
-                "for advanced trainees who can recover adequately."
+                "Five-day split with two leg sessions per week for balanced "
+                "lower-body development. Push/Pull/Legs A in the first half, "
+                "then a combined Upper session and a second Legs session. "
+                "Great for intermediate-to-advanced trainees chasing hypertrophy."
             ),
         )
     # 6+
@@ -146,6 +160,13 @@ def weekly_volume(
         "core": 6,
     }
     total = sum(groups.values())
+    strength_note = ""
+    if goal == GoalArchetype.STRENGTH and base < 10:
+        strength_note = (
+            " Strength training emphasizes intensity (load) over volume, so "
+            "beginner strength targets sit below the 10-20 hypertrophy range; "
+            "add sets only if strength plateaus."
+        )
     return WeeklyVolume(
         total_sets=total,
         per_muscle_group=groups,
@@ -153,6 +174,7 @@ def weekly_volume(
             f"{base} sets/major group based on goal={goal.value}, "
             f"experience={experience.value}. "
             f"RippedBody practical range: 10-20 sets/muscle/wk."
+            f"{strength_note}"
         ),
     )
 
@@ -194,10 +216,19 @@ def intensity_scheme(
         reps, rir = "8-12", 2.0
         acc_reps, acc_rir = "10-15", 2.0
 
-    # Beginners stay further from failure
+    # Beginners stay further from failure — but the override is now goal-aware:
+    # for strength training, beginners can safely train closer to failure
+    # because absolute loads are lighter; for hypertrophy/fat-loss, the
+    # 3-RIR floor applies because the higher rep ranges make technical
+    # failure more likely. See audit finding F30.
     if experience == ExperienceLevel.BEGINNER:
-        rir = max(rir, 3.0)
-        acc_rir = max(acc_rir, 3.0)
+        if goal != GoalArchetype.STRENGTH:
+            rir = max(rir, 3.0)
+            acc_rir = max(acc_rir, 3.0)
+        else:
+            # Strength beginners: keep 2 RIR (already safe at light loads);
+            # only bump accessory work to 3 RIR.
+            acc_rir = max(acc_rir, 3.0)
 
     return IntensityScheme(
         primary_reps=reps, primary_rir=rir,
@@ -205,7 +236,8 @@ def intensity_scheme(
         rationale=(
             f"RIR-based intensity. Goal={goal.value}, "
             f"experience={experience.value}. "
-            f"Beginners stay 3+ RIR; advanced push closer to failure."
+            f"Beginners stay 3+ RIR on hypertrophy/fat-loss work; "
+            f"strength beginners may train at 2 RIR because loads are lighter."
         ),
     )
 
@@ -230,24 +262,41 @@ def exercise_selection(
       home_bodyweight → bodyweight only
       home_gym        → dumbbells, bands, bench, pullup_bar, kettlebells
       gym_full        → everything (barbell, rack, machines, cables)
+
+    The include list is environment-aware: barbell-specific lifts are only
+    included for ``gym_full``; home environments get their bodyweight/dumbbell
+    equivalents via the substitute map. See audit finding F31.
     """
     include: List[str] = []
     exclude: List[str] = []
     subs: Dict[str, List[str]] = {}
 
-    # Universal compound patterns
+    # Universal compound patterns (these are movement patterns, not
+    # specific exercises, so they apply to every environment).
     include.extend([
         "horizontal_push", "vertical_pull", "hinge",
         "squat", "carry", "core",
     ])
 
-    # Goal-specific emphasis
-    if goal in (GoalArchetype.STRENGTH,):
-        include.extend(["barbell_squat", "deadlift", "bench_press",
-                        "overhead_press"])
+    # Goal-specific emphasis — only include barbell-specific lifts when the
+    # environment can support them. See audit finding F31.
+    if goal == GoalArchetype.STRENGTH:
+        if environment == TrainingEnvironment.GYM_FULL:
+            include.extend(["barbell_squat", "deadlift", "bench_press",
+                            "overhead_press"])
+        else:
+            # Home environments: include the movement patterns instead of
+            # barbell-specific names so the picker can find feasible options.
+            include.extend(["horizontal_push", "vertical_push", "hinge",
+                            "squat"])
     if goal in (GoalArchetype.MUSCLE_GAIN, GoalArchetype.RECOMPOSITION):
-        include.extend(["incline_press", "lat_pulldown", "leg_curl",
-                        "lateral_raise"])
+        if environment == TrainingEnvironment.GYM_FULL:
+            include.extend(["incline_press", "lat_pulldown", "leg_curl",
+                            "lateral_raise"])
+        else:
+            # Home alternatives: lateral raises can use bands; leg curls
+            # become sliding leg curls or single-leg RDLs.
+            include.extend(["isolation", "hamstring"])
 
     # Environment-based substitutions
     if environment == TrainingEnvironment.HOME_BODYWEIGHT:
@@ -398,20 +447,47 @@ def periodisation(
 # --------------------------------------------------------------------------- #
 # Cuisine selection                                                           #
 # --------------------------------------------------------------------------- #
+# Default cuisines used when the user provides no preference. The previous
+# default (["american", "mediterranean"]) was US/Western-centric. We now
+# derive the default from the most-common cuisines in the recipe database
+# so the planner's default pool is as large as possible. See audit F32.
+_DEFAULT_CUISINES = ["american", "mediterranean"]
+
+
+def set_default_cuisines(cuisines: List[str]) -> None:
+    """Override the default cuisine list used when the user provides no
+    preference.
+
+    This is intended for applications that want to locale-aware default
+    (e.g., set to ``["ethiopian", "mediterranean"]`` for an East African
+    user base). Call this once at startup; the change is global.
+    """
+    global _DEFAULT_CUISINES
+    _DEFAULT_CUISINES = list(cuisines)
+
+
 def cuisine_pick(prefs: List[str]) -> List[str]:
     """Pick cuisines for meal rotation.
 
     If the user added a traditional cuisine preference, it comes first.
-    Otherwise we default to American + Mediterranean.
+    Otherwise we fall back to :data:`_DEFAULT_CUISINES` (American +
+    Mediterranean by default; override with :func:`set_default_cuisines`).
+    See audit finding F32.
+
+    All cuisine names are normalised to lowercase so that a user supplying
+    ``"Mediterranean"`` matches the meal library's ``"mediterranean"`` tag.
+    See second-audit finding (cuisine_pick case).
     """
     if not prefs or prefs == ["none"]:
-        return ["american", "mediterranean"]
+        return list(_DEFAULT_CUISINES)
     out = []
     for c in prefs:
-        if c and c != "none" and c not in out:
-            out.append(c)
+        if c and c != "none":
+            c_lower = c.lower()
+            if c_lower not in out:
+                out.append(c_lower)
     if not out:
-        out = ["american", "mediterranean"]
+        out = list(_DEFAULT_CUISINES)
     return out[:3]
 
 
@@ -433,11 +509,16 @@ def supplement_stack(
     RippedBody stance: supplements are the least important layer (bottom
     of the pyramid). Most people don't need them, but a few are
     well-supported.
+
+    The ``conditional`` field is now populated with diet-mode- and goal-
+    specific supplements that depend on context (electrolytes for keto,
+    iron/zinc for vegan women, etc.). See audit finding F33.
     """
     from .archetypes import DietaryPreference
 
     found: List[Tuple[str, str, str]] = []
     goal_sp: List[Tuple[str, str, str]] = []
+    cond: List[Tuple[str, str, str]] = []
 
     # Vegan-specific foundational supplements
     if diet_pref == DietaryPreference.VEGAN:
@@ -449,17 +530,51 @@ def supplement_stack(
                        "Vegan alternative to fish oil for EPA/DHA."))
         found.append(("Creatine monohydrate", "5 g/day",
                        "Not found in plant foods; boosts training performance."))
+        # Vegan women of reproductive age are at high risk of iron deficiency.
+        cond.append(("Iron (if ferritin low)", "as prescribed by physician",
+                      "Vegan women with heavy menstrual cycles should monitor ferritin."))
+        cond.append(("Zinc", "8-11 mg/day",
+                      "Plant phytates reduce zinc absorption; consider a supplement."))
+        cond.append(("Calcium", "1000 mg/day if not met by food",
+                      "Fortified plant milks and tofu can meet needs; supplement otherwise."))
     else:
         found.append(("Vitamin D3", "1000-2000 IU/day",
                        "Most adults are deficient; supports bone + immune."))
         found.append(("Omega-3 (EPA/DHA)", "1-2 g/day",
                        "Anti-inflammatory, cardiovascular support."))
 
-    # Goal-specific
+    # Diet-mode-conditional supplements
+    if diet_pref == DietaryPreference.KETO:
+        cond.append(("Sodium (electrolytes)", "3000-5000 mg/day in early keto",
+                      "Keto flushes sodium; prevent 'keto flu' with broth or electrolyte mix."))
+        cond.append(("Magnesium", "200-400 mg/day",
+                      "Keto increases magnesium excretion; supplement to prevent cramps."))
+        cond.append(("Potassium", "1000-3500 mg/day from food + supplement",
+                      "Keto flushes potassium; avocados and leafy greens, then supplement."))
+    if diet_pref == DietaryPreference.LOW_CARB:
+        cond.append(("Electrolytes", "as needed",
+                      "Low-carb diets flush water and electrolytes; broth or mix if headaches."))
+    if diet_pref == DietaryPreference.PALEO:
+        cond.append(("Calcium", "if not eating dairy alternatives",
+                      "Paleo excludes dairy; ensure calcium from sardines/leafy greens or supplement."))
+
+    # Goal-conditional supplements
+    if goal == GoalArchetype.FAT_LOSS:
+        cond.append(("Caffeine", "100-200 mg pre-workout (optional)",
+                      "Mild performance and fat-oxidation boost; cycle off periodically."))
+    if goal == GoalArchetype.STRENGTH:
+        cond.append(("Beta-alanine", "3-6 g/day (optional)",
+                      "Modest benefit for high-rep sets; not essential for 1RM strength."))
+        cond.append(("Caffeine", "3-6 mg/kg pre-workout",
+                      "Well-supported strength and power enhancer."))
+
+    # Goal-specific (foundational for these goals)
+    # Avoid duplicating creatine for vegans — it's already in their foundational list.
     if goal in (GoalArchetype.MUSCLE_GAIN, GoalArchetype.STRENGTH,
                 GoalArchetype.RECOMPOSITION):
-        goal_sp.append(("Creatine monohydrate", "5 g/day",
-                         "Most evidenced performance supplement."))
+        if diet_pref != DietaryPreference.VEGAN:
+            goal_sp.append(("Creatine monohydrate", "5 g/day",
+                             "Most evidenced performance supplement."))
     if goal == GoalArchetype.MUSCLE_GAIN:
         goal_sp.append(("Whey protein", "as needed",
                          "Convenience to hit protein targets."))
@@ -470,5 +585,5 @@ def supplement_stack(
     return SupplementStack(
         foundational=found,
         goal_specific=goal_sp,
-        conditional=[],
+        conditional=cond,
     )

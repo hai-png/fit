@@ -85,13 +85,32 @@ def _format_plan_text(rec) -> str:
 
 
 def _format_plan_json(rec) -> str:
-    def default(o):
-        if dataclasses.is_dataclass(o):
-            return dataclasses.asdict(o)
-        if hasattr(o, "value"):
-            return o.value
-        return str(o)
-    return json.dumps(dataclasses.asdict(rec), default=default, indent=2)
+    """Serialize a PlanRecommendation to a JSON string.
+
+    Uses the unified ``_to_json_safe`` helper from recommender.py so that
+    enums (top-level and nested) are converted to their string values
+    uniformly — the same path used by ``ClientProfile.to_dict``. See audit
+    finding F76.
+    """
+    from .recommender import _to_json_safe
+    return json.dumps(_to_json_safe(rec), indent=2)
+
+
+def _json_default(o):
+    """Fallback JSON default for objects ``_to_json_safe`` does not handle
+    (e.g., datetime, set). Used by ``cmd_review`` and ``cmd_store_client``.
+    """
+    import dataclasses as _dc
+    from datetime import datetime as _dt
+    if _dc.is_dataclass(o):
+        return _dc.asdict(o)
+    if hasattr(o, "value"):
+        return o.value
+    if isinstance(o, _dt):
+        return o.isoformat()
+    if isinstance(o, set):
+        return sorted(o)
+    return str(o)
 
 
 # --------------------------------------------------------------------------- #
@@ -128,17 +147,15 @@ def cmd_showcase(args) -> int:
                      "strategy", "split"))
     print("-" * 95)
 
-    from . import Sex
-    DEFAULTS = {
-        "The Classic Hard Gainer":  (22, Sex.MALE,   180, 64, 11),
-        "The Muscled Cutter":       (35, Sex.MALE,   178, 92, 25),
-        "The Skinny-Fat Recomper":  (30, Sex.MALE,   175, 78, 22),
-        "The Home-Gym Beginner":    (45, Sex.FEMALE, 165, 68, 28),
-        "The Plant-Powered Builder":(27, Sex.MALE,   178, 74, 12),
-    }
+    # Showcase defaults are now co-located with each ArchetypeProfile
+    # (ap.showcase_defaults) so the dict no longer needs to be maintained
+    # separately. See audit finding F75.
     for ap in all_curated():
         sig = ap.signature
-        age, sex, ht, wt, bf = DEFAULTS[ap.nickname]
+        if ap.showcase_defaults is None:
+            # Skip archetypes without showcase defaults rather than crashing.
+            continue
+        age, sex, ht, wt, bf = ap.showcase_defaults
         p = ClientProfile(
             age=age, sex=sex, height_cm=ht, weight_kg=wt, body_fat_pct=bf,
             activity=sig.activity,
@@ -243,9 +260,22 @@ def cmd_review(args) -> int:
         )
     reverse = data.get("reverse_diet")
     if reverse:
+        # Resolve estimated_maintenance with explicit guards to avoid
+        # subscripting None. See audit finding F74.
+        est_maintenance = reverse.get("estimated_maintenance")
+        if est_maintenance is None:
+            # Fall back to adaptive_tdee's observed value if available.
+            adaptive = result.get("adaptive_tdee") or {}
+            est_maintenance = adaptive.get("adaptive_tdee")
+        if est_maintenance is None:
+            # Fall back to formula_tdee if provided.
+            est_maintenance = data.get("formula_tdee")
+        if est_maintenance is None:
+            # Last resort: use current_calories (no surplus) so we don't crash.
+            est_maintenance = float(reverse["current_calories"])
         result["reverse_diet"] = dataclasses.asdict(reverse_diet_protocol(
             current_calories=float(reverse["current_calories"]),
-            estimated_maintenance=float(reverse.get("estimated_maintenance", result["adaptive_tdee"]["adaptive_tdee"] if result["adaptive_tdee"] else data.get("formula_tdee", reverse["current_calories"]))),
+            estimated_maintenance=float(est_maintenance),
             bodyweight_kg=float(reverse["bodyweight_kg"]),
             approach=reverse.get("approach", "moderate"),
             build_muscle=bool(reverse.get("build_muscle", False)),
@@ -273,7 +303,11 @@ def cmd_store_client(args) -> int:
     rec = Recommender(profile).recommend() if args.with_plan else None
     name = data.get("name", "Client")
     client_id = args.client_id or _client_id_from_name(name)
-    store_client(client_id, name, profile.to_dict(), dataclasses.asdict(rec) if rec else None, args.db)
+    # Use _to_json_safe for the plan snapshot so nested enums are converted
+    # uniformly. See audit finding F76.
+    from .recommender import _to_json_safe
+    plan_snapshot = _to_json_safe(rec) if rec else None
+    store_client(client_id, name, profile.to_dict(), plan_snapshot, args.db)
     print(f"Stored client {client_id} in {args.db}")
     return 0
 

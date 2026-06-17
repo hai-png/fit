@@ -31,7 +31,7 @@ exercise and meal selections using `exercise_plans.py` and `meal_plans.py`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from .archetypes import (
     ActivityLevel, DietaryPreference, ExperienceLevel, GoalArchetype,
@@ -152,17 +152,49 @@ def _conditioning(goal: GoalArchetype, days_per_week: int) -> List[str]:
     ]
 
 
-def _special_modifiers(age: int, sex: Sex, goal: GoalArchetype) -> List[str]:
+def _special_modifiers(age: int, sex: Sex, goal: GoalArchetype,
+                       medical_flags: Optional[Dict[str, bool]] = None) -> List[str]:
     out: List[str] = []
     if age >= 46:
         out.extend([
             "Use longer warm-ups and slower load jumps; prioritize joint-friendly variations.",
             "Keep 1-3 reps in reserve on most work; add volume only if recovery markers are stable.",
         ])
+    if age < 18:
+        out.extend([
+            "Adolescent trainees should focus on technique over load; avoid max-effort 1RM testing.",
+            "Prioritise sleep, school, and social commitments over training volume.",
+        ])
     if sex == Sex.FEMALE:
         out.append("Interpret scale trends with menstrual-cycle water fluctuations in mind when applicable.")
     if goal == GoalArchetype.FAT_LOSS:
         out.append("During the final third of a cut, preserve load/intensity and reduce volume before reducing effort quality.")
+
+    # Medical-flag modifiers. The medical_flags dict is provided by the
+    # caller (the recommender passes ``ClientProfile.medical_flags``). See
+    # audit finding F64.
+    medical_flags = medical_flags or {}
+    if medical_flags.get("pregnant_or_recent_postpartum"):
+        out.extend([
+            "Pregnancy/post-partum: avoid supine exercises after the first trimester; "
+            "avoid heavy lifting, Valsalva, and contact sports; consult the OB-GYN before any plan.",
+            "Prioritise pelvic-floor and core stability work; walking and swimming are excellent.",
+        ])
+    if medical_flags.get("recent_surgery"):
+        out.append(
+            "Recent surgery: obtain surgeon clearance before starting; avoid loading the affected "
+            "tissue for the full healing window; start with ROM and isometric work."
+        )
+    if medical_flags.get("diagnosed_eating_disorder"):
+        out.append(
+            "Eating-disorder history: de-emphasise calorie/macro tracking; work with a registered "
+            "dietitian and therapist; consider habit-based rather than numbers-based guidance."
+        )
+    if medical_flags.get("cardiac_condition") or medical_flags.get("unexplained_chest_pain_or_fainting"):
+        out.append(
+            "Cardiac flag: obtain cardiologist clearance before starting; avoid Valsalva, max-effort "
+            "lifts, and high-intensity intervals until cleared."
+        )
     return out
 
 
@@ -170,6 +202,7 @@ def build_exercise_plan_protocol(
     goal: GoalArchetype, experience: ExperienceLevel, days_per_week: int,
     session_length: SessionLength, environment: TrainingEnvironment,
     age: int = 30, sex: Sex = Sex.MALE,
+    medical_flags: Optional[Dict[str, bool]] = None,
 ) -> ExercisePlanProtocol:
     split = training_split(goal, experience, days_per_week)
     vol = weekly_volume(goal, experience, days_per_week)
@@ -214,35 +247,62 @@ def build_exercise_plan_protocol(
             "If a session exceeds the set cap, move accessory work to another day or trim isolation work first.",
             "If progress stalls: check sleep, calories, protein, RIR accuracy, frequency, technique, pain, then volume.",
         ],
-        special_population_modifiers=_special_modifiers(age, sex, goal),
+        special_population_modifiers=_special_modifiers(age, sex, goal, medical_flags),
     )
 
 
 DIET_MODE_NOTES = {
+    DietaryPreference.BALANCED: [
+        "No exclusions; aim for a mix of lean protein, whole grains, vegetables, fruit, and healthy fats.",
+        "Use the macro split as the primary guide; food choice is flexible within the macro budget.",
+    ],
+    DietaryPreference.OMNIVORE: [
+        "No specific exclusions; include meat, fish, eggs, dairy, grains, and produce as preferred.",
+        "Prioritise whole foods over processed; treat the macro split as the primary guide.",
+    ],
+    DietaryPreference.VEGETARIAN: [
+        "Combine grains and legumes (rice + beans, hummus + pita) for complete protein.",
+        "Include eggs and dairy for B12, calcium, and high-quality protein.",
+        "Iron from plant sources is less well absorbed; pair with vitamin C-rich foods.",
+    ],
+    DietaryPreference.PESCATARIAN: [
+        "Aim for 2-3 fish servings per week (salmon, sardines, mackerel) for EPA/DHA.",
+        "Combine with vegetarian protein (legumes, eggs, dairy) on non-fish days.",
+    ],
+    DietaryPreference.POLLO_PESCATARIAN: [
+        "Rotate poultry, fish, eggs, and dairy for protein variety.",
+        "Limit red-meat-style recipes; this mode is closest to a Mediterranean pattern.",
+    ],
     DietaryPreference.KETO: [
         "Keep carbs generally <50 g/day; maintain protein and set fats as the remaining calories.",
         "Use as a preference/tolerance mode, not because ketosis is superior for fat loss when calories are matched.",
         "Run a 4-week trial and rate mood, energy, hunger, and training performance daily.",
+        "Supplement sodium, magnesium, and potassium to offset electrolyte losses.",
     ],
     DietaryPreference.LOW_CARB: [
         "Lower carbs only as far as training performance and adherence remain acceptable.",
         "Prefer vegetables, lean protein, and fats from whole-food sources.",
     ],
-    DietaryPreference.VEGAN: [
-        "Use higher protein targets and combine plant proteins; consider pea/rice protein blends.",
-        "Supplement B12; consider D3, algae omega-3, calcium, iron, zinc, and creatine as needed.",
-    ],
     DietaryPreference.MEDITERRANEAN: [
         "Emphasize fish/seafood, legumes, vegetables, fruit, whole grains, olive oil, yogurt, nuts, and herbs.",
+        "This pattern is associated with cardiovascular and longevity benefits in observational research.",
     ],
     DietaryPreference.GLUTEN_FREE: [
-        "Use gluten-free grains/starches; confirm sauces and packaged foods are gluten-free if medically required.",
+        "Use gluten-free grains/starches (rice, quinoa, potato, buckwheat); confirm sauces and packaged foods are gluten-free if medically required.",
+        "If avoiding gluten for non-medical reasons, consider whether whole-grain wheat has benefits you'd be giving up.",
     ],
     DietaryPreference.PALEO: [
         "Emphasize meat/fish/eggs, fruit, vegetables, tubers, nuts, and oils; ensure carbs are sufficient for training.",
+        "Legumes and whole grains are excluded by the strict definition; many people find a 'practical paleo' approach with occasional legumes is more sustainable.",
     ],
     DietaryPreference.HIGH_PROTEIN: [
         "Protein is already set first; avoid pushing protein so high that carbs/fats impair training or adherence.",
+        "≥2.0 g/kg is appropriate during a cut or for older adults; >3 g/kg has no clear additional benefit.",
+    ],
+    DietaryPreference.VEGAN: [
+        "Use higher protein targets and combine plant proteins; consider pea/rice protein blends.",
+        "Supplement B12; consider D3, algae omega-3, calcium, iron, zinc, and creatine as needed.",
+        "Iron from plant sources is less well absorbed; pair with vitamin C-rich foods and avoid coffee/tea around meals.",
     ],
 }
 
@@ -324,9 +384,10 @@ def build_complete_profile_protocol(
     diet: DietaryPreference, calories: float, macros: Macros,
     meals_per_day: int, activity: ActivityLevel, age: int = 30,
     sex: Sex = Sex.MALE,
+    medical_flags: Optional[Dict[str, bool]] = None,
 ) -> CompleteProfileProtocol:
     return CompleteProfileProtocol(
-        exercise=build_exercise_plan_protocol(goal, experience, days_per_week, session_length, environment, age, sex),
+        exercise=build_exercise_plan_protocol(goal, experience, days_per_week, session_length, environment, age, sex, medical_flags),
         meal=build_meal_plan_protocol(goal, diet, calories, macros, meals_per_day, activity),
         conflict_resolution=[
             "If body composition suggests cut/bulk/recomp differs from the selected goal, flag the mismatch and ask for a deliberate phase choice.",

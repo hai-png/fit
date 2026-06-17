@@ -1,20 +1,59 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Generated output can be regenerated with run_all.sh.
-# The current output/ directory is intentionally kept as checked-in examples;
-# uncomment the next line if using this repository for local/private runs.
-# output/
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
 
-# OS
-.DS_Store
-Thumbs.db
+# Test artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
 
-# Editors
+# IDE / editor
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
-.vscode/
-.idea/
+.DS_Store
+
+# SQLite databases (coaching logs)
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated plan output (created by run_all.sh and the CLI)
+output/
+*.html
+!examples/*.html
+
+# OS / misc
+Thumbs.db

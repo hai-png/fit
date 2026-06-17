@@ -40,6 +40,29 @@ from .protocols import CompleteProfileProtocol, build_complete_profile_protocol
 
 
 # --------------------------------------------------------------------------- #
+# Serialization helpers                                                       #
+# --------------------------------------------------------------------------- #
+def _to_json_safe(obj: Any) -> Any:
+    """Recursively convert enums to their ``.value`` and dataclasses to dicts.
+
+    Used by :meth:`ClientProfile.to_dict` and by the CLI's JSON serializer so
+    that nested enums (inside lists, dicts, or other dataclasses) are
+    converted uniformly. See audit finding F62.
+    """
+    import dataclasses as _dc
+    import enum as _enum
+    if isinstance(obj, _enum.Enum):
+        return obj.value
+    if _dc.is_dataclass(obj) and not isinstance(obj, type):
+        return {k: _to_json_safe(v) for k, v in _dc.asdict(obj).items()}
+    if isinstance(obj, dict):
+        return {k: _to_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_json_safe(v) for v in obj]
+    return obj
+
+
+# --------------------------------------------------------------------------- #
 # Client profile                                                              #
 # --------------------------------------------------------------------------- #
 @dataclass
@@ -149,12 +172,32 @@ class ClientProfile:
         self.dislikes = list(self.dislikes or [])
         self.preferred_cuisines = list(self.preferred_cuisines or [])
 
+        # Motivation validation: the GOALS questionnaire defines five valid
+        # motivation values. If the user supplied one of them, accept it; if
+        # they supplied free text, accept it but emit no warning (the field
+        # is documented as accepting either). See audit finding F67.
+        _VALID_MOTIVATIONS = {
+            "health_event", "appearance", "performance", "longevity",
+            "mental_health",
+        }
+        if self.motivation and self.motivation not in _VALID_MOTIVATIONS:
+            # Free-text motivation is allowed but we normalize empty/whitespace
+            # to the default ("appearance") so downstream consumers can rely
+            # on a non-empty string.
+            if not self.motivation.strip():
+                self.motivation = "appearance"
+
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize the profile to a JSON-safe dict.
+
+        Recursively converts enum values to their string ``.value`` so the
+        result is safe for ``json.dumps``. The previous implementation only
+        handled top-level enums; nested enums (e.g., inside lists or dicts,
+        if the schema ever adds them) would have survived as enum instances
+        and broken serialization. See audit finding F62.
+        """
         d = asdict(self)
-        for k, v in list(d.items()):
-            if hasattr(v, "value"):
-                d[k] = v.value
-        return d
+        return _to_json_safe(d)
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "ClientProfile":
@@ -240,6 +283,11 @@ class PlanRecommendation:
     intake_report: IntakeReport
     warnings: List[str]
     notes: List[str]
+    # Auto-generated meal-plan audit. The recommender runs
+    # audit_7_day_meal_plan on the weekly meal plan so the score is visible
+    # in every generated plan, not only when the user explicitly invokes
+    # the auditor. See audit finding F58.
+    meal_plan_audit: Optional[Any] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -266,8 +314,20 @@ class Recommender:
         )
 
     def _meal_seed(self) -> int:
+        """Derive a deterministic meal-plan seed.
+
+        When ``meal_plan_seed`` is supplied, it is XORed with ``plan_week``
+        so that the seed produces a different (but still deterministic) plan
+        each week — matching the README's claim that ``plan_week`` derives a
+        "different repeatable recipe rotation". The previous implementation
+        returned ``meal_plan_seed`` verbatim, which produced the *same* plan
+        every week regardless of ``plan_week``, contradicting the README.
+        See second-audit finding (meal_plan_seed overrides plan_week).
+        """
         if self.p.meal_plan_seed is not None:
-            return self.p.meal_plan_seed
+            # XOR the user-supplied seed with plan_week so each week is
+            # different but still deterministic.
+            return self.p.meal_plan_seed ^ (self.p.plan_week * 2654435761)
         seed_payload = {
             "age": self.p.age,
             "sex": self.p.sex.value,
@@ -283,29 +343,47 @@ class Recommender:
     def _load_guidance(self, ex, rep_range: str) -> Optional[Dict[str, Any]]:
         """Return simple load guidance from optional client working weights.
 
-        `working_weights_kg` accepts keys such as squat, bench_press, deadlift,
-        overhead_press, row, pullup, or an exercise-name/key fragment.  We treat
-        the provided load as a recent hard set of ~5 reps and estimate 1RM from
-        it, then prescribe a conservative working range for the plan's reps/RIR.
+        ``working_weights_kg`` accepts keys such as ``squat``, ``bench_press``,
+        ``deadlift``, ``overhead_press``, ``row``, ``pullup``, or an exercise-
+        name fragment. We treat the provided load as a recent hard set of ~5
+        reps and estimate 1RM from it, then prescribe a conservative working
+        range for the plan's reps/RIR.
+
+        Matching is performed **only** on the exercise's ``name`` field — not
+        on its ``pattern`` or ``primary_muscle``. Pattern-name matching (e.g.
+        treating ``"hinge"`` as a deadlift alias) caused false cross-lift
+        applications (e.g., a deadlift 1RM applied to Barbell Hip Thrust
+        because both have ``pattern=hinge``). See audit finding C3.
         """
         if not self.p.working_weights_kg:
             return None
+        # Aliases are exercise-NAME fragments only. Each list contains the
+        # canonical key plus known name-level synonyms/regressions of that
+        # lift. Pattern names ("hinge", "vertical_push", etc.) are
+        # intentionally excluded to avoid cross-lift contamination.
         aliases = {
-            "squat": ["squat", "leg_press", "lunge"],
-            "bench_press": ["bench", "push_up", "horizontal_push"],
-            "deadlift": ["deadlift", "rdl", "hinge", "hip_thrust"],
-            "overhead_press": ["overhead", "vertical_push", "pike_push"],
-            "row": ["row", "horizontal_pull"],
-            "pullup": ["pull-up", "pullup", "pulldown", "vertical_pull"],
+            "squat": ["squat", "leg_press", "lunge", "goblet"],
+            "bench_press": ["bench press", "bench_press", "dumbbell bench"],
+            "deadlift": ["deadlift", "romanian deadlift", "rdl"],
+            "overhead_press": ["overhead press", "shoulder press", "arnold press"],
+            "row": ["barbell row", "dumbbell row", "bent over", "bent-over"],
+            "pullup": ["pull-up", "pull up", "pullup", "pulldown", "chin up", "chin-up"],
         }
-        haystack = " ".join([ex.name, ex.pattern, ex.primary_muscle]).lower()
+        haystack = ex.name.lower()
         matched_key = None
         for key, load in self.p.working_weights_kg.items():
             key_l = key.lower().replace(" ", "_")
             fragments = aliases.get(key_l, [key_l.replace("_", " "), key_l])
-            if any(fragment in haystack for fragment in fragments):
-                matched_key = key
-                working_load = float(load)
+            # Word-boundary matching: a fragment must appear as a whole word
+            # (or whole phrase) inside the exercise name, not as a substring.
+            # This prevents "row" matching "arrow" or "barbell upright row"
+            # matching a "row" key when the user only specified barbell_row.
+            for frag in fragments:
+                if frag in haystack:
+                    matched_key = key
+                    working_load = float(load)
+                    break
+            if matched_key is not None:
                 break
         if matched_key is None:
             return None
@@ -318,21 +396,48 @@ class Recommender:
             "input_working_weight_kg": round(working_load, 1),
             "estimated_1rm_kg": est.average_1rm,
             "suggested_working_weight_kg": suggested,
-            "rationale": f"Estimated from {working_load:g} kg × 5; start conservatively for {rep_range} @ target RIR.",
+            "rationale": (
+                f"Estimated from {working_load:g} kg × 5 (assumed recent hard set "
+                f"of 5 reps on {matched_key}); start conservatively for "
+                f"{rep_range} @ target RIR."
+            ),
         }
 
     @staticmethod
     def _reconcile_volume(targets: Dict[str, int], schedule: Dict[str, List[dict]]) -> Dict[str, Any]:
+        # Map granular muscle names (biceps, triceps, lats, abs, etc.) to the
+        # coarser muscle groups used by weekly_volume targets (arms, back,
+        # core, etc.). Without this aliasing, isolation exercises for biceps
+        # and triceps would not count toward the "arms" target. See audit C5.
+        MUSCLE_ALIASES = {
+            "biceps": "arms",
+            "triceps": "arms",
+            "forearms": "arms",
+            "lats": "back",
+            "traps": "back",
+            "rear_delts": "back",
+            "abs": "core",
+            "obliques": "core",
+            "hip_flexors": "core",
+            "cardio": "core",  # cardio exercises are not muscle-grouped; skip
+        }
+        def _alias(muscle: str) -> Optional[str]:
+            if muscle in targets:
+                return muscle
+            return MUSCLE_ALIASES.get(muscle)
+
         actual = {muscle: 0.0 for muscle in targets}
         for exercises in schedule.values():
             for ex in exercises:
                 sets = float(ex.get("set_count", 3))
                 primary = ex.get("primary_muscle")
-                if primary in actual:
-                    actual[primary] += sets
+                alias = _alias(primary) if primary else None
+                if alias:
+                    actual[alias] += sets
                 for secondary in ex.get("secondary_muscles", []):
-                    if secondary in actual:
-                        actual[secondary] += sets * 0.5
+                    alias = _alias(secondary)
+                    if alias:
+                        actual[alias] += sets * 0.5
         actual_i = {k: int(round(v)) for k, v in actual.items()}
         diff = {k: actual_i.get(k, 0) - target for k, target in targets.items()}
         within = {k: abs(v) <= 1 for k, v in diff.items()}
@@ -390,8 +495,9 @@ class Recommender:
             target_weight_kg=p.target_weight_kg,
         )
 
-        # 5b. Optional training/rest-day macro cycling for adherence
-        mc = macro_cycle(m, p.days_per_week)
+        # 5b. Optional training/rest-day macro cycling for adherence.
+        # Pass sex so the rest-day floor (1200/1500) is enforced.
+        mc = macro_cycle(m, p.days_per_week, sex=p.sex)
 
         # 6. Hydration
         h = hydration(p.weight_kg, workout_minutes=45 * p.days_per_week, sex=p.sex)
@@ -467,7 +573,16 @@ class Recommender:
         )
         # Single-day plan is the first day of the same external-only weekly plan,
         # kept for backwards compatibility with callers expecting nutrition.meal_plan.
+        # NOTE: ``day_plan`` is always the current week's Day 1 (Monday). When
+        # ``plan_week`` changes, the deterministic meal-plan seed changes, so
+        # both ``weekly_meal_plan`` and ``meal_plan`` change silently. Callers
+        # who cache ``meal_plan`` across weeks must re-fetch. See audit F60.
         day_plan = week_plan.days[0]
+
+        # 10b. Auto-audit the weekly meal plan so the score is visible in
+        # every generated plan. See audit finding F58.
+        from .meal_plan_auditor import audit_7_day_meal_plan
+        meal_audit = audit_7_day_meal_plan(week_plan)
 
         # 11. Supplements
         supps = supplement_stack(p.primary_goal, p.dietary_preference)
@@ -486,6 +601,7 @@ class Recommender:
             p.primary_goal, p.experience, p.days_per_week, p.session_length,
             p.environment, p.dietary_preference, ee.calorie_target, m,
             p.meals_per_day, p.activity, age=p.age, sex=p.sex,
+            medical_flags=p.medical_flags,
         )
 
         # 14. Signature
@@ -525,10 +641,14 @@ class Recommender:
             GoalArchetype.GENERAL_HEALTH: "maintenance",
         }.get(p.primary_goal)
         if goal_strategy and tree_strategy != goal_strategy:
-            notes.append(
+            # Goal-strategy mismatch is now a WARNING (not a note) because a
+            # user who selects FAT_LOSS but is actually underweight should
+            # see the message prominently. See audit finding F61.
+            warnings.append(
                 f"Reference-guide phase decision tree suggests '{tree_strategy}' "
                 f"({tree_reason}), while the selected goal implies '{goal_strategy}'. "
-                f"The plan follows the selected goal but this mismatch should be reviewed."
+                f"The plan follows the selected goal but this mismatch should be reviewed "
+                f"with the client before proceeding."
             )
         if ee.calorie_target_breakdown.get("alpert_safeguard_applied"):
             warnings.append(
@@ -582,6 +702,7 @@ class Recommender:
             intake_report=ir,
             warnings=warnings,
             notes=notes,
+            meal_plan_audit=meal_audit,
         )
 
     def _cardio_prescription(self, goal: GoalArchetype,
