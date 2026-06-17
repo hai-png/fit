@@ -961,9 +961,20 @@ def classify_trainee(
     physique state and recommend a strategy (cut / bulk / recomp).
     Muscle mass is inferred from BMI + body fat (lean mass ratio).
     """
-    # Estimate "has significant muscle" from lean mass density
+    # Estimate "has significant muscle" from BMI and absolute lean mass.
+    # The previous check used lean_ratio > 0.78 (i.e. BF < 22%), which made
+    # FAT_BUT_MUSCLED unreachable because that category requires BF >= 22%
+    # (the high_bf threshold). The fix uses BMI as a proxy for absolute
+    # lean mass: a higher BMI at a given BF% means more absolute muscle.
+    # The reference guide describes FAT_BUT_MUSCLED as "solid muscular base
+    # under a fat layer" — this is someone with high BMI (≥25) who also
+    # has significant training experience. See unified reference guide §6.
     lean_ratio = 1 - body_fat_pct / 100
-    has_muscle = lean_ratio > 0.78 and bmi_val >= 22
+    # has_muscle: BMI ≥ 25 indicates enough total mass to likely have
+    # significant muscle underneath the fat, OR lean_ratio > 0.78 for
+    # leaner individuals. This makes FAT_BUT_MUSCLED reachable.
+    has_muscle = (bmi_val >= 25 and experience != ExperienceLevel.BEGINNER) or \
+                 (lean_ratio > 0.78 and bmi_val >= 22)
 
     if diet_history_confused:
         return TraineeProfile(

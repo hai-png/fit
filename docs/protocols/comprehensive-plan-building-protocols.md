@@ -1,6 +1,6 @@
 # Comprehensive Exercise and Meal Plan Building Protocols
 
-This document explains the protocol layer added in `fitness_engine/protocols.py`. The key point is that the engine does **not** need a hand-authored plan for every one of the 233,280 enumerated archetype signatures. Instead, every profile is covered by deterministic protocol rules that combine:
+This document explains the protocol layer in `fitness_engine/protocols.py`. The engine does **not** need a hand-authored plan for every one of the 233,280 enumerated archetype signatures. Instead, every profile is covered by deterministic protocol rules that combine:
 
 - goal
 - experience
@@ -13,6 +13,8 @@ This document explains the protocol layer added in `fitness_engine/protocols.py`
 - calorie/macro target
 - meal frequency and cuisine/allergen preferences
 
+For the full evidence-based rationale behind each formula and threshold, see `docs/reference/unified-fitness-reference-guide.md`.
+
 ## Exercise plan protocol
 
 ### 1. Adherence first
@@ -21,10 +23,11 @@ The profile's realistic training days and session length come before theoretical
 
 | Days/week | Default split |
 |---:|---|
+| 1 | Full Body (single session) |
 | 2 | Full Body A/B |
-| 3 | Full Body A/B/C |
+| 3 | Full Body A/B/C (three distinct variants) |
 | 4 | Upper / Lower |
-| 5 | Push / Pull / Legs + upper emphasis |
+| 5 | Push / Pull / Legs A / Upper / Legs B |
 | 6+ | Push / Pull / Legs × 2 |
 
 Advanced trainees receive notes that two days/week is mainly maintenance unless sessions are long and recovery is excellent.

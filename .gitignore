@@ -57,3 +57,6 @@ output/
 
 # OS / misc
 Thumbs.db
+
+# Ruff cache
+.ruff_cache/
