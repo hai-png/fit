@@ -138,13 +138,17 @@ def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.1
     # Source/macro confidence.
     confidences = [_confidence(m) for d in plan.days for m in d.meals]
     # The planner emits {"verified", "curated", "parsed", "estimated", "missing"}.
-    # The previous check also looked for "missing_or_incomplete" which is never
-    # emitted — dead code. Removed. See second-audit finding (dead confidence check).
-    missing_or_est = [c for c in confidences if c in {"missing", "estimated"}]
-    if missing_or_est:
-        issues.append(f"Some meals have missing/estimated macro confidence: {missing_or_est[:5]}.")
+    # 'estimated' means calories were recalculated from macros — the macros
+    # themselves are still reliable. Only penalize 'missing' (no macro data).
+    missing_conf = [c for c in confidences if c == "missing"]
+    if missing_conf:
+        issues.append(f"Some meals have missing macro confidence: {missing_conf[:5]}.")
         score -= 15
-    checks["macro_confidence"] = "pass" if not missing_or_est else "fail"
+    est_count = sum(1 for c in confidences if c == "estimated")
+    if est_count > len(confidences) * 0.5:
+        issues.append(f"Majority of meals ({est_count}/{len(confidences)}) have estimated macros.")
+        score -= 5
+    checks["macro_confidence"] = "pass" if not missing_conf else "fail"
 
     # Practicality: extreme portion scaling.
     extreme = [(d.name, m.name, m.portion_scale) for d in plan.days for m in d.meals if m.portion_scale < 0.35 or m.portion_scale > 2.5]
@@ -155,11 +159,13 @@ def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.1
     checks["portion_scaling"] = "pass" if not extreme else "warn"
 
     # Slot sanity: flag desserts/snacks in main-meal slots using word-boundary
-    # regex matching. See audit F56.
+    # regex matching. Only flag if the meal is also low-calorie (<300 kcal) —
+    # a "protein shake" with 500+ kcal is a legitimate meal replacement.
+    # See audit F56 + recipe cleanup.
     slot_mismatch = []
     for day in plan.days:
         for meal in day.meals:
-            if meal.slot in {"lunch", "dinner"}:
+            if meal.slot in {"lunch", "dinner"} and meal.calories < 300:
                 name_l = meal.name.lower()
                 if any(p.search(name_l) for p in _SLOT_SANITY_PATTERNS):
                     slot_mismatch.append((day.name, meal.slot, meal.name))
