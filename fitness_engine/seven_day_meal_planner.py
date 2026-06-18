@@ -268,8 +268,14 @@ def _slot_layout(meals_per_day: int) -> List[Tuple[str, float]]:
 
 def _scale(meal: MealItem, scale: float) -> MealItem:
     # P2 #16 — use dataclasses.replace to keep MealItem frozen=True.
+    # P1 #10 (T4) — use the centralised PORTION_SCALE_MIN/MAX constants from
+    # meal_plans.py so all three portion-scaling sites agree on the clamp
+    # range. Previously this used [0.20, 5.0] while meal_plans._scale_meal
+    # used [0.25, 3.0] and the auditor flagged <0.35 or >2.5 — three
+    # different ranges producing inconsistent behaviour.
     import dataclasses as _dc
-    scale = round(max(0.20, min(5.0, scale)), 2)
+    from .meal_plans import PORTION_SCALE_MIN, PORTION_SCALE_MAX
+    scale = round(max(PORTION_SCALE_MIN, min(PORTION_SCALE_MAX, scale)), 2)
     return _dc.replace(
         meal,
         calories=round(meal.calories * scale, 0),
@@ -606,6 +612,20 @@ def assemble_7_day_meal_plan(
     include_internal: bool = False, alternatives_per_meal: int = 3,
     seed: Optional[int] = None,
 ) -> SevenDayMealPlan:
+    """Assemble a 7-day meal plan that matches calorie and macro targets.
+
+    Three-phase algorithm per day:
+      1. Macro-targeted recipe selection (per-slot scoring by macro density)
+      2. Uniform scaling to hit the day's calorie target
+      3. Booster additions (protein / fibre) if still under target
+
+    Variety is enforced via a monotonic repeat penalty and per-day cuisine
+    rotation. The ``seed`` parameter makes the plan reproducible.
+
+    Raises:
+        ValueError: if target_calories <= 0 or no compatible recipes exist
+            for the given diet/allergen filters.
+    """
     # P2 #23 — validate target_calories > 0; _quality divides by it and
     # would ZeroDivisionError if 0. Previously silently produced 0.25× scaled plans.
     if target_calories <= 0:

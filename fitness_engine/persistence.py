@@ -29,7 +29,13 @@ from contextlib import closing
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # NEW-V1-5 — import PlanRecommendation under TYPE_CHECKING so the type
+    # annotation resolves for IDEs without introducing a runtime circular
+    # import (persistence is imported by cli which is imported by recommender).
+    from .recommender import PlanRecommendation
 
 # Current schema version. Increment when the schema changes; add a migration
 # step in `_migrate` below. See audit finding F68.
@@ -101,6 +107,12 @@ def _json_default(obj: Any) -> Any:
 
 
 def connect(db_path: str = "clients.db") -> sqlite3.Connection:
+    """Open a SQLite connection with foreign keys, WAL journal mode, and busy_timeout.
+
+    WAL allows concurrent readers to not block writers; busy_timeout makes
+    writers wait 5s instead of raising SQLITE_BUSY on contention. The
+    parent directory is created if it does not exist.
+    """
     path = Path(db_path)
     if path.parent and str(path.parent) != ".":
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -256,9 +268,22 @@ def store_client(
     client_id: str,
     name: str,
     profile: dict,
-    plan: Optional[Any] = None,
+    plan: Optional[Union["PlanRecommendation", dict]] = None,
     db_path: str = "clients.db",
 ) -> None:
+    """Insert or update a client row, optionally storing a plan snapshot.
+
+    Args:
+        client_id: Stable identifier for the client (used in foreign keys).
+        name: Human-readable client name (NOT NULL after schema v3).
+        profile: Client profile as a dict (will be JSON-serialised).
+        plan: Optional plan snapshot — either a ``PlanRecommendation``
+            dataclass or a pre-serialised dict.
+        db_path: SQLite database path.
+
+    Raises:
+        TypeError: if profile is not a dict.
+    """
     # P2 #37 — validate profile is a dict; previously a list or None would
     # silently stringify and store, producing an unreadable profile_json.
     if not isinstance(profile, dict):

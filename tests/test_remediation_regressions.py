@@ -694,20 +694,22 @@ class TestP2_AgeGroupSenior(unittest.TestCase):
 
 
 class TestP2_WeeklyTonnageRename(unittest.TestCase):
-    """P2 #19 — load_kg field renamed to avg_load_per_rep_kg."""
+    """P2 #19 + NEW-V1-9 — load_kg renamed and CORRECTED to avg_load_per_rep_kg."""
 
     def test_avg_load_per_rep_kg_field(self):
         from fitness_engine import weekly_tonnage
-        # total_volume = 3 sets × 10 reps × 100 kg = 3000; total_reps = 10.
-        # avg_load_per_rep_kg = 3000 / 10 = 300.
+        # NEW-V1-9: avg_load_per_rep_kg is now the mean of session load_kg
+        # values, not total_volume/total_reps. For one session at 100 kg,
+        # the average load per rep is 100 kg (the session's load).
         t = weekly_tonnage([{"sets": 3, "reps": 10, "load_kg": 100}])
-        self.assertEqual(t.avg_load_per_rep_kg, 300.0)
+        self.assertEqual(t.avg_load_per_rep_kg, 100.0)
         self.assertEqual(t.total_volume_kg, 3000.0)
 
     def test_load_kg_backwards_compat_property(self):
         from fitness_engine import weekly_tonnage
         t = weekly_tonnage([{"sets": 3, "reps": 10, "load_kg": 100}])
-        # P2 #19 — backwards-compat property still works.
+        # P2 #19 + NEW-V1-9 — backwards-compat property returns the legacy
+        # (misleading) value: total_volume / total_reps = 3000/10 = 300.
         self.assertEqual(t.load_kg, 300.0)
 
 
@@ -832,3 +834,213 @@ class TestP2_InitialAssessmentNoGoalParam(unittest.TestCase):
         self.assertNotIn("goal", sig.parameters,
                          msg="goal parameter should be removed")
         self.assertIn("expected_change_per_week_kg", sig.parameters)
+
+
+# =========================================================================== #
+# V1 verification follow-up tests
+# =========================================================================== #
+class TestV1_CalorieTargetActivityTiered(unittest.TestCase):
+    """T3 P1 #5 — calorie_target NEAT buffer is now activity-tiered."""
+
+    def test_highly_active_gets_no_buffer(self):
+        from fitness_engine import calorie_target
+        from fitness_engine.archetypes import ActivityLevel, ExperienceLevel, GoalArchetype, Sex
+        # Very active bulk: NEAT buffer should be 1.0 (no buffer).
+        target, breakdown = calorie_target(
+            tdee_value=2500, goal=GoalArchetype.MUSCLE_GAIN,
+            bodyweight_kg=80, experience=ExperienceLevel.BEGINNER,
+            sex=Sex.MALE, activity=ActivityLevel.VERY_ACTIVE,
+        )
+        self.assertEqual(breakdown["neat_buffer_pct"], 0)
+
+    def test_sedentary_gets_50pct_buffer(self):
+        from fitness_engine import calorie_target
+        from fitness_engine.archetypes import ActivityLevel, ExperienceLevel, GoalArchetype, Sex
+        target, breakdown = calorie_target(
+            tdee_value=2500, goal=GoalArchetype.MUSCLE_GAIN,
+            bodyweight_kg=80, experience=ExperienceLevel.BEGINNER,
+            sex=Sex.MALE, activity=ActivityLevel.SEDENTARY,
+        )
+        self.assertEqual(breakdown["neat_buffer_pct"], 50)
+
+    def test_lightly_active_gets_25pct_buffer(self):
+        from fitness_engine import calorie_target
+        from fitness_engine.archetypes import ActivityLevel, ExperienceLevel, GoalArchetype, Sex
+        target, breakdown = calorie_target(
+            tdee_value=2500, goal=GoalArchetype.MUSCLE_GAIN,
+            bodyweight_kg=80, experience=ExperienceLevel.BEGINNER,
+            sex=Sex.MALE, activity=ActivityLevel.LIGHTLY_ACTIVE,
+        )
+        self.assertEqual(breakdown["neat_buffer_pct"], 25)
+
+
+class TestV1_AnthropometricIndicesValidation(unittest.TestCase):
+    """T3 P1 #9 — anthropometric_indices validates waist<hip."""
+
+    def test_waist_ge_hip_adds_warning_note(self):
+        from fitness_engine import anthropometric_indices
+        from fitness_engine.archetypes import Sex
+        result = anthropometric_indices(170, 70, Sex.FEMALE, waist_cm=100, hip_cm=80)
+        # Should still compute, but include a warning note about the unusual ratio.
+        self.assertTrue(any(">= hip_cm" in note or "unusual" in note.lower() for note in result.notes),
+                        msg=f"Expected warning note about waist>=hip; got notes: {result.notes}")
+
+    def test_negative_waist_raises(self):
+        from fitness_engine import anthropometric_indices
+        from fitness_engine.archetypes import Sex
+        with self.assertRaises(ValueError):
+            anthropometric_indices(170, 70, Sex.MALE, waist_cm=-10, hip_cm=90)
+
+
+class TestV1_FatLossRateValidation(unittest.TestCase):
+    """T3 P1 #7 — fat_loss_rate_for_bodyfat validates input range."""
+
+    def test_negative_bf_raises(self):
+        from fitness_engine import fat_loss_rate_for_bodyfat
+        from fitness_engine.archetypes import Sex
+        with self.assertRaises(ValueError):
+            fat_loss_rate_for_bodyfat(-10, Sex.MALE)
+
+    def test_excessive_bf_raises(self):
+        from fitness_engine import fat_loss_rate_for_bodyfat
+        from fitness_engine.archetypes import Sex
+        with self.assertRaises(ValueError):
+            fat_loss_rate_for_bodyfat(200, Sex.MALE)
+
+    def test_none_bf_returns_default(self):
+        from fitness_engine import fat_loss_rate_for_bodyfat, FAT_LOSS_WEEKLY_RATE
+        from fitness_engine.archetypes import Sex
+        self.assertEqual(fat_loss_rate_for_bodyfat(None, Sex.MALE), FAT_LOSS_WEEKLY_RATE)
+
+
+class TestV1_BodyCompositionFemaleNoHipDirectCall(unittest.TestCase):
+    """T3 P1 #10 — body_composition no longer crashes for female-no-hip direct call."""
+
+    def test_female_waist_neck_no_hip_falls_through(self):
+        from fitness_engine import body_composition
+        from fitness_engine.archetypes import Sex
+        # Direct call (not via Recommender) — should fall through to Deurenberg
+        # instead of raising ValueError.
+        bc = body_composition(
+            weight_kg=70, height_cm=165, age=30, sex=Sex.FEMALE,
+            waist_cm=78, neck_cm=32, hip_cm=None,
+        )
+        self.assertIsNotNone(bc.body_fat_pct)
+        self.assertNotEqual(bc.estimation_method, "navy",
+                            "Female with no hip should NOT use Navy method")
+
+
+class TestV1_PortionScaleThresholdsAligned(unittest.TestCase):
+    """T4 P1 #10 — all three portion-scale sites use the same constants."""
+
+    def test_scaler_clamp_range_consistent(self):
+        from fitness_engine.meal_plans import _scale_meal, MealItem, PORTION_SCALE_MAX
+        from fitness_engine.seven_day_meal_planner import _scale
+        # Both scalers should clamp to [0.25, 3.0] now.
+        meal = MealItem(name="t", cuisine="a", slot="dinner",
+                        calories=100, protein_g=10, carbs_g=10, fat_g=5, fibre_g=3)
+        # Try scale=10.0 — both should clamp to PORTION_SCALE_MAX.
+        m1 = _scale_meal(meal, 10.0)
+        m2 = _scale(meal, 10.0)
+        self.assertAlmostEqual(m1.portion_scale, PORTION_SCALE_MAX)
+        self.assertAlmostEqual(m2.portion_scale, PORTION_SCALE_MAX)
+
+    def test_auditor_uses_centralised_constants(self):
+        from fitness_engine.meal_plans import PORTION_SCALE_AUDIT_MIN, PORTION_SCALE_AUDIT_MAX
+        # Just verify the constants are importable and have expected values.
+        self.assertEqual(PORTION_SCALE_AUDIT_MIN, 0.35)
+        self.assertEqual(PORTION_SCALE_AUDIT_MAX, 2.5)
+
+
+class TestV1_LoadGuidanceWordBoundary(unittest.TestCase):
+    """T5 P1 #3 — _load_guidance uses actual word-boundary regex."""
+
+    def test_row_does_not_match_arrow(self):
+        from fitness_engine.recommender import ClientProfile, Recommender
+        from fitness_engine.archetypes import Sex, GoalArchetype, ExperienceLevel, TrainingEnvironment, DietaryPreference
+        # Exercise named "Arrow Release Drill" should NOT match working_weights_kg['row'].
+        p = ClientProfile(
+            age=30, sex=Sex.MALE, height_cm=178, weight_kg=75,
+            primary_goal=GoalArchetype.GENERAL_HEALTH,
+            experience=ExperienceLevel.INTERMEDIATE,
+            days_per_week=4, environment=TrainingEnvironment.GYM_FULL,
+            dietary_preference=DietaryPreference.OMNIVORE,
+            working_weights_kg={"row": 80.0},
+        )
+        rec = Recommender(p)
+        # Construct a fake exercise-like object with name "Arrow Release Drill".
+        class FakeEx:
+            name = "Arrow Release Drill"
+        result = rec._load_guidance(FakeEx(), "8-12")
+        # Should NOT match because "row" is not a word boundary in "Arrow Release Drill"
+        # (it's a substring of "Arrow"). Returns None.
+        self.assertIsNone(result,
+                          msg="'row' working weight should NOT match 'Arrow Release Drill'")
+
+
+class TestV1_WeeklyTonnageCorrected(unittest.TestCase):
+    """NEW-V1-9 — avg_load_per_rep_kg now correctly computes mean of session loads."""
+
+    def test_single_session_load_returned(self):
+        from fitness_engine import weekly_tonnage
+        # Single session at 100 kg → avg_load_per_rep_kg should be 100.0
+        # (the session's load), NOT 300.0 (the legacy total_volume/total_reps).
+        t = weekly_tonnage([{"sets": 3, "reps": 10, "load_kg": 100}])
+        self.assertEqual(t.avg_load_per_rep_kg, 100.0)
+
+    def test_multi_session_mean(self):
+        from fitness_engine import weekly_tonnage
+        # Two sessions: 100 kg and 80 kg → mean = 90.
+        t = weekly_tonnage([
+            {"sets": 3, "reps": 10, "load_kg": 100},
+            {"sets": 4, "reps": 8, "load_kg": 80},
+        ])
+        self.assertEqual(t.avg_load_per_rep_kg, 90.0)
+
+    def test_legacy_load_kg_property_preserved(self):
+        from fitness_engine import weekly_tonnage
+        t = weekly_tonnage([{"sets": 3, "reps": 10, "load_kg": 100}])
+        # Legacy property returns the OLD (misleading) value for backwards compat.
+        # 3000 / 10 = 300.
+        self.assertEqual(t.load_kg, 300.0)
+
+
+class TestV1_AllOpenCallsHaveEncoding(unittest.TestCase):
+    """NEW-V1-1, NEW-V1-2 — all open() calls use encoding='utf-8'."""
+
+    def test_no_open_without_encoding_in_engine(self):
+        import os
+        engine_dir = "/home/z/my-project/fit/fitness_engine"
+        offenders = []
+        for root, _, files in os.walk(engine_dir):
+            for fname in files:
+                if not fname.endswith(".py"):
+                    continue
+                path = os.path.join(root, fname)
+                with open(path, encoding="utf-8") as f:
+                    for lineno, line in enumerate(f, 1):
+                        # Find open( calls that don't specify encoding.
+                        if "open(" in line and "encoding" not in line:
+                            # Skip comments and docstrings (rough heuristic).
+                            stripped = line.strip()
+                            if stripped.startswith("#") or stripped.startswith('"""') or stripped.startswith("'''"):
+                                continue
+                            offenders.append(f"{path}:{lineno}: {stripped}")
+        # Allow no offenders.
+        self.assertEqual(offenders, [], msg=f"open() calls without encoding: {offenders}")
+
+
+class TestV1_RecommenderDataclassesFrozen(unittest.TestCase):
+    """NEW-V1-3 — TrainingPlan, NutritionPlan, PlanRecommendation are frozen."""
+
+    def test_plan_recommendation_is_frozen(self):
+        from fitness_engine.recommender import PlanRecommendation
+        # Check that the dataclass has frozen=True in its params.
+        params = PlanRecommendation.__dataclass_params__
+        self.assertTrue(params.frozen,
+                        msg="PlanRecommendation should be frozen=True")
+
+    def test_training_plan_is_frozen(self):
+        from fitness_engine.recommender import TrainingPlan
+        params = TrainingPlan.__dataclass_params__
+        self.assertTrue(params.frozen)

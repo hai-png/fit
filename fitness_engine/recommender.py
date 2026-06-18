@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 import hashlib
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 from .archetypes import (
@@ -303,7 +304,7 @@ class ClientProfile:
 # --------------------------------------------------------------------------- #
 # Output models                                                               #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class TrainingPlan:
     split: TrainingSplit
     weekly_volume: WeeklyVolume
@@ -320,7 +321,7 @@ class TrainingPlan:
     cooldown_protocol: List[str]
 
 
-@dataclass
+@dataclass(frozen=True)
 class NutritionPlan:
     calories: float
     macros: Macros
@@ -333,7 +334,7 @@ class NutritionPlan:
     supplements: dict
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlanRecommendation:
     profile: Dict[str, Any]
     archetype_signature: str
@@ -444,12 +445,14 @@ class Recommender:
         for key, load in self.p.working_weights_kg.items():
             key_l = key.lower().replace(" ", "_")
             fragments = aliases.get(key_l, [key_l.replace("_", " "), key_l])
-            # Word-boundary matching: a fragment must appear as a whole word
-            # (or whole phrase) inside the exercise name, not as a substring.
-            # This prevents "row" matching "arrow" or "barbell upright row"
-            # matching a "row" key when the user only specified barbell_row.
+            # P1 #3 (T5) — actual word-boundary matching via regex, so a
+            # fragment must appear as a whole word (or whole phrase) inside
+            # the exercise name, not as a substring. This prevents "row"
+            # matching "arrow" or "barbell upright row" matching a "row"
+            # key when the user only specified barbell_row.
             for frag in fragments:
-                if frag in haystack:
+                pat = r"\b" + re.escape(frag) + r"\b"
+                if re.search(pat, haystack):
                     matched_key = key
                     working_load = float(load)
                     break
@@ -557,6 +560,14 @@ class Recommender:
         }
 
     def recommend(self) -> PlanRecommendation:
+        """Generate the complete plan recommendation for the client profile.
+
+        Composes body composition → trainee classification → energy/macro
+        targets → training split → 7-day meal plan → audit → protocols into
+        a single :class:`PlanRecommendation` object. Pure function of
+        ``self.p`` — same profile always produces the same plan (subject to
+        ``plan_week`` / ``meal_plan_seed`` for meal-plan rotation).
+        """
         p = self.p
 
         # 1. Body composition (with visual BF fallback)

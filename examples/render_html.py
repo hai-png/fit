@@ -315,7 +315,7 @@ def main():
     parser.add_argument("output",  help="path to output HTML")
     args = parser.parse_args()
 
-    with open(args.profile) as fh:
+    with open(args.profile, encoding="utf-8") as fh:
         data = json.load(fh)
     profile = ClientProfile.from_dict(data)
     rec = Recommender(profile).recommend()
@@ -327,7 +327,7 @@ def main():
     # `output/` hadn't been created). See audit finding F77.
     out_dir = os.path.dirname(os.path.abspath(args.output))
     os.makedirs(out_dir, exist_ok=True)
-    with open(args.output, "w") as fh:
+    with open(args.output, "w", encoding="utf-8") as fh:
         fh.write(html)
     print(f"Wrote {args.output}  ({len(html):,} bytes)")
 

@@ -25,7 +25,7 @@ from .archetypes import (
 # --------------------------------------------------------------------------- #
 # Training split                                                              #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class TrainingSplit:
     name: str
     days: List[str]       # day labels with session type
@@ -110,7 +110,7 @@ def training_split(
 # --------------------------------------------------------------------------- #
 # Volume                                                                      #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class WeeklyVolume:
     total_sets: int
     per_muscle_group: Dict[str, int]
@@ -187,7 +187,7 @@ def weekly_volume(
 # --------------------------------------------------------------------------- #
 # Intensity                                                                   #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class IntensityScheme:
     primary_reps: str
     primary_rir: float       # Reps in Reserve
@@ -207,6 +207,12 @@ def intensity_scheme(
       6-8 reps/set → 3-0 RIR
       8-12 reps/set → 2-0 RIR
       >12 reps/set → 1-0 RIR
+
+    P1 #8 (T4) — the ``primary_rir`` and ``accessory_rir`` fields are
+    scalars representing the *conservative* (higher) end of the cited
+    range. For example, ``primary_rir=2.0`` means "start at 2 RIR and
+    progress toward 0 RIR over the training block." The full range is
+    documented in the per-goal branches below.
     """
     if goal == GoalArchetype.STRENGTH:
         # RippedBody source specifies 4-6 reps for strength work (not 3-6).
@@ -257,7 +263,7 @@ def intensity_scheme(
 # --------------------------------------------------------------------------- #
 # Exercise selection rules                                                    #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class ExerciseRule:
     """Include/exclude/substitute directives for exercise selection."""
     include: List[str]
@@ -339,7 +345,7 @@ def exercise_selection(
 # --------------------------------------------------------------------------- #
 # Progression                                                                 #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class ProgressionRule:
     primary: str
     accessory: str
@@ -381,7 +387,7 @@ def progression_rule(
 # --------------------------------------------------------------------------- #
 # Session density                                                             #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class SessionDensity:
     work_seconds: int
     rest_seconds: int
@@ -430,7 +436,7 @@ def session_density(goal: GoalArchetype, session: SessionLength) -> SessionDensi
 # --------------------------------------------------------------------------- #
 # Periodisation                                                               #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class Periodisation:
     scheme: str
     cycle_weeks: int
@@ -528,7 +534,7 @@ def cuisine_pick(prefs: List[str]) -> List[str]:
 # --------------------------------------------------------------------------- #
 # Supplement recommendations                                                  #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class SupplementStack:
     foundational: List[Tuple[str, str, str]]
     goal_specific: List[Tuple[str, str, str]]

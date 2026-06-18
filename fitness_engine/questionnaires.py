@@ -21,7 +21,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # NEW-V1-4 — import Sex under TYPE_CHECKING so the type annotation
+    # resolves for IDEs without introducing a runtime circular import.
+    from .archetypes import Sex
 
 
 # --------------------------------------------------------------------------- #
@@ -35,14 +40,14 @@ class QuestionType(str, Enum):
     TEXT = "text"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Choice:
     id: str
     label: str
     score: float = 0.0
 
 
-@dataclass
+@dataclass(frozen=True)
 class Question:
     id: str
     prompt: str
@@ -325,7 +330,7 @@ FULL_INTAKE = [
 # Instead of a PAR-Q questionnaire, we generate recommendations and warnings
 # from the client's body composition, trainee category, and goals.
 
-@dataclass
+@dataclass(frozen=True)
 class IntakeReport:
     warnings: List[str]
     notes: List[str]
@@ -338,7 +343,7 @@ def intake_report(
     calorie_target: float,
     trainee_summary: str = "",
     trainee_recommendations: Optional[List[str]] = None,
-    sex: Optional[Any] = None,
+    sex: Optional["Sex"] = None,
 ) -> IntakeReport:
     """Generate health/lifestyle recommendations based on body metrics.
 

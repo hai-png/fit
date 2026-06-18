@@ -5,7 +5,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List
 
-from .meal_plans import DIET_COMPATIBILITY, MealItem
+from .meal_plans import (
+    DIET_COMPATIBILITY, MealItem,
+    PORTION_SCALE_AUDIT_MIN, PORTION_SCALE_AUDIT_MAX,
+)
 from .seven_day_meal_planner import SevenDayMealPlan
 
 
@@ -68,6 +71,21 @@ _SLOT_SANITY_PATTERNS = [
 
 
 def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.15) -> MealPlanAudit:
+    """Audit a 7-day meal plan and return a score (0-100), grade, issues, and recommendations.
+
+    Checks: structure (7 days, ≥3 meals/day), calorie/protein/fibre adherence,
+    diet compatibility, variety, macro confidence, portion scaling, food-group
+    coverage, and slot sanity (desserts in main-meal slots).
+
+    Args:
+        plan: The SevenDayMealPlan to audit.
+        protein_tolerance: Fraction of target protein below which a day is
+            flagged (default 0.15 = 15%).
+
+    Returns:
+        MealPlanAudit with score (0-100, floored at 20), grade (A-F),
+        per-check status dict, issues list, and recommendations list.
+    """
     issues: List[str] = []
     recs: List[str] = []
     checks: Dict[str, str] = {}
@@ -164,11 +182,13 @@ def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.1
     checks["macro_confidence"] = "pass" if not missing_conf else "fail"
 
     # Practicality: extreme portion scaling.
-    # Threshold aligned with meal_plans._scale_meal ([0.25, 3.0]) and
-    # seven_day_meal_planner._scale ([0.20, 5.0]) — the auditor's [0.35, 2.5]
-    # is now documented as the "advisable" range (inside both scalers' allowed
-    # ranges), with anything outside flagged as warn. See P1 #10.
-    extreme = [(d.name, m.name, m.portion_scale) for d in plan.days for m in d.meals if m.portion_scale < 0.35 or m.portion_scale > 2.5]
+    # P1 #10 (T4) — all three sites now reference the same constants:
+    #   - meal_plans._scale_meal uses PORTION_SCALE_MIN/MAX = [0.25, 3.0] (hard clamp)
+    #   - seven_day_meal_planner._scale uses PORTION_SCALE_MIN/MAX = [0.25, 3.0] (hard clamp)
+    #   - auditor (here) uses PORTION_SCALE_AUDIT_MIN/MAX = [0.35, 2.5] (advisable)
+    # The auditor's range is stricter than the hard clamp, so anything the
+    # scaler allows but the auditor flags is genuinely "extreme but possible".
+    extreme = [(d.name, m.name, m.portion_scale) for d in plan.days for m in d.meals if m.portion_scale < PORTION_SCALE_AUDIT_MIN or m.portion_scale > PORTION_SCALE_AUDIT_MAX]
     if extreme:
         issues.append(f"Extreme portion scaling found: {extreme[:6]}.")
         recs.append("Prefer recipes closer to slot targets or add smaller side items instead of scaling entire recipes.")

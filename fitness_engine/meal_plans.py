@@ -35,8 +35,16 @@ from .archetypes import DietaryPreference
 # inline magic numbers in _scale_meal; the auditor's [0.35, 2.5] "advisable"
 # range is documented in meal_plan_auditor.py and sits inside this scaler's
 # allowed range.
+# P1 #10 (T4) — centralised so all three sites (meal_plans._scale_meal,
+# seven_day_meal_planner._scale, and meal_plan_auditor extreme check) reference
+# the same values. The auditor's "advisable" range [0.35, 2.5] is stricter
+# and is defined separately as PORTION_SCALE_AUDIT_MIN/MAX below.
 PORTION_SCALE_MIN = 0.25
 PORTION_SCALE_MAX = 3.0
+# The auditor flags anything outside [0.35, 2.5] as "extreme" — this is
+# the "advisable" range, stricter than the hard scaler clamp above.
+PORTION_SCALE_AUDIT_MIN = 0.35
+PORTION_SCALE_AUDIT_MAX = 2.5
 
 
 # --------------------------------------------------------------------------- #

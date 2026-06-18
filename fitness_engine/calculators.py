@@ -289,9 +289,14 @@ def body_composition(
 
     Priority for body-fat estimation:
       1. ``bf_pct`` — user-supplied (most trusted)
-      2. Navy formula — if waist + neck given
+      2. Navy formula — if waist + neck (+ hip for females) given
       3. Visual estimation — if ``visual_bf_label`` given
       4. Deurenberg BMI method — fallback
+
+    P1 #10 — for female callers with waist+neck but no hip, the Navy branch
+    is now skipped (falling through to visual/Deurenberg) instead of raising
+    ValueError. Previously the priority chain selected Navy unconditionally
+    on waist+neck presence, then crashed inside body_fat_navy.
     """
     b = bmi(weight_kg, height_cm)
 
@@ -309,7 +314,10 @@ def body_composition(
             )
         bf = float(bf_pct)
         method = "user_input"
-    elif waist_cm and neck_cm:
+    elif waist_cm and neck_cm and (sex == Sex.MALE or hip_cm is not None):
+        # P1 #10 — for females, also require hip_cm before selecting Navy;
+        # otherwise fall through to visual/Deurenberg instead of crashing
+        # inside body_fat_navy.
         bf = body_fat_navy(sex, height_cm, neck_cm, waist_cm, hip_cm)
         method = "navy"
     elif visual_bf_label is not None:
@@ -433,9 +441,21 @@ def fat_loss_rate_for_bodyfat(body_fat_pct: Optional[float], sex: Sex) -> float:
     Exercise body-fat chart; Gallagher et al. 2000, Am J Clin Nutr 72:694-701).
     Subtracting 8% from a female's measured BF% gives a male-equivalent
     threshold for the loss-rate tiers. See audit finding F9.
+
+    P1 #7 — validates body_fat_pct range when provided (was silently
+    accepting negative values, returning 0.004 for body_fat_pct=-10).
     """
     if body_fat_pct is None:
         return FAT_LOSS_WEEKLY_RATE
+    # P1 #7 — validate body_fat_pct range.
+    if not isinstance(body_fat_pct, (int, float)):
+        raise ValueError(
+            f"body_fat_pct must be a number, got {type(body_fat_pct).__name__}"
+        )
+    if body_fat_pct < 0 or body_fat_pct > 70:
+        raise ValueError(
+            f"body_fat_pct must be between 0 and 70, got {body_fat_pct}"
+        )
     # Convert female thresholds to male-equivalent by subtracting ~8%.
     # See docstring citation.
     male_equiv_bf = body_fat_pct - (8 if sex == Sex.FEMALE else 0)
@@ -455,6 +475,7 @@ def calorie_target(
     fat_loss_rate: float = FAT_LOSS_WEEKLY_RATE,
     sex: Optional[Sex] = None,
     body_fat_pct: Optional[float] = None,
+    activity: Optional[ActivityLevel] = None,
 ) -> Tuple[float, dict]:
     """Goal-driven calorie target (RippedBody methodology).
 
@@ -498,18 +519,21 @@ def calorie_target(
         monthly_rate = BULK_MONTHLY_RATE.get(experience, 0.01)
         surplus = bodyweight_kg * monthly_rate * 330  # 330 kcal per kg gain/mo
         # NEAT (non-exercise activity thermogenesis) tends to rise during a
-        # bulk and burn off part of the surplus. We compensate with a 50%
-        # buffer for sedentary/mostly-sedentary individuals (whose NEAT has
-        # the most room to rise), tapering to no buffer for highly active
-        # individuals (whose NEAT is already elevated and unlikely to rise
-        # further). Without this tiering, sedentary beginners would
-        # systematically under-gain and highly-active lifters would
-        # systematically over-gain. See audit finding F12.
-        neat_buffer = 1.5  # default for sedentary/mostly_sedentary
-        # The caller can pass `activity` indirectly via TDEE; we approximate
-        # the tiering by the TDEE/BMR ratio if BMR is known. For now, we use
-        # a flat 1.5× buffer because the function does not receive the
-        # activity level. A future refactor should pass activity in.
+        # bulk and burn off part of the surplus. We compensate with a tiered
+        # buffer based on activity level: sedentary individuals get a 50%
+        # buffer (their NEAT has the most room to rise), highly-active
+        # individuals get no buffer (their NEAT is already elevated and
+        # unlikely to rise further). Without this tiering, sedentary
+        # beginners would systematically under-gain and highly-active
+        # lifters would systematically over-gain. See P1 #5.
+        # Activity tiering (P1 #5 fix — was flat 1.5× for all activity levels):
+        if activity in (ActivityLevel.VERY_ACTIVE, ActivityLevel.MODERATELY_ACTIVE):
+            neat_buffer = 1.0  # already active; no NEAT buffer needed
+        elif activity == ActivityLevel.LIGHTLY_ACTIVE:
+            neat_buffer = 1.25  # moderate room for NEAT rise
+        else:
+            # SEDENTARY, MOSTLY_SEDENTARY, or None (unknown) — most room for NEAT rise.
+            neat_buffer = 1.5
         surplus_adj = surplus * neat_buffer
         target = tdee_value + surplus_adj
         breakdown.update({
@@ -519,8 +543,10 @@ def calorie_target(
             "daily_surplus": round(surplus_adj, 1),
             "neat_buffer_pct": int((neat_buffer - 1.0) * 100),
             "neat_buffer_note": (
-                "50% buffer applied to compensate for NEAT rise during a bulk. "
-                "For highly-active individuals, consider reducing this buffer."
+                f"NEAT buffer {int((neat_buffer - 1.0) * 100)}% applied based on "
+                f"activity level ({activity.value if activity else 'unknown'}). "
+                f"Sedentary individuals get 50% buffer (NEAT has room to rise); "
+                f"highly-active get 0% (NEAT already elevated)."
             ),
         })
     elif goal == GoalArchetype.RECOMPOSITION:
@@ -574,6 +600,7 @@ def energy_expenditure(
     target, breakdown = calorie_target(
         tdee_v, goal, weight_kg, experience, target_weight_kg,
         fat_loss_rate=rate, sex=sex, body_fat_pct=bf_pct,
+        activity=activity,
     )
     return EnergyExpenditure(
         bmr=round(bmr, 1),
@@ -1310,22 +1337,39 @@ def recommend_phase_strategy(
 class WeeklyTonnage:
     sets: int
     reps: int
-    # P2 #19 — renamed from `load_kg` (which was actually avg load per rep,
-    # a misleading name). Kept `load_kg` as a property for backwards compat.
+    # P2 #19 + NEW-V1-9 — field renamed and CORRECTED. Previously `load_kg`
+    # was computed as `L / max(r, 1)` where L = total_volume = sum(sets ×
+    # reps × load) and r = sum(reps). That formula yields `sets × load`
+    # (NOT load per rep), which is misleading. The true average load per
+    # rep is the average of the per-rep load across all sessions, which
+    # equals `sum(load_kg) / count(sessions)` when each session's load is
+    # constant across reps (the standard interpretation). We compute that
+    # here as `avg_load_per_rep_kg`. For backwards compat, the `load_kg`
+    # property still returns the old (misleading) value so existing
+    # callers don't break — but the new field name is correct.
     avg_load_per_rep_kg: float
     total_volume_kg: float
+    # NEW-V1-9 — preserve the old (incorrect) value for backwards compat.
+    _legacy_load_kg: float = 0.0
 
     @property
     def load_kg(self) -> float:
-        """Backwards-compat alias for avg_load_per_rep_kg.
+        """Backwards-compat alias returning the legacy (misleading) value.
 
-        Deprecated; use avg_load_per_rep_kg directly.
+        Deprecated; use avg_load_per_rep_kg for the correct average load
+        per rep. The legacy value was `total_volume / total_reps` which
+        equals `sets × load` — not load per rep.
         """
-        return self.avg_load_per_rep_kg
+        return self._legacy_load_kg
 
 
 def weekly_tonnage(sessions: List[dict]) -> WeeklyTonnage:
-    """sessions: [{sets, reps, load_kg}, ...]"""
+    """sessions: [{sets, reps, load_kg}, ...]
+
+    NEW-V1-9 — corrected avg_load_per_rep_kg to be the actual average load
+    per rep across sessions (mean of session load_kg values), not the
+    legacy `total_volume / total_reps` (which equals sets × load).
+    """
     for i, x in enumerate(sessions):
         for k in ("sets", "reps", "load_kg"):
             v = x.get(k, 0)
@@ -1335,8 +1379,18 @@ def weekly_tonnage(sessions: List[dict]) -> WeeklyTonnage:
     r = sum(x.get("reps", 0) for x in sessions)
     L = sum(x.get("sets", 0) * x.get("reps", 0) * x.get("load_kg", 0)
             for x in sessions)
-    return WeeklyTonnage(sets=s, reps=r, avg_load_per_rep_kg=round(L / max(r, 1), 1),
-                         total_volume_kg=round(L, 1))
+    # NEW-V1-9 — true average load per rep = mean of per-session load_kg.
+    # If sessions list is empty, default to 0.
+    loads = [x.get("load_kg", 0) for x in sessions]
+    avg_load = round(sum(loads) / max(len(loads), 1), 1) if loads else 0.0
+    # Legacy value (kept for backwards compat via .load_kg property).
+    legacy = round(L / max(r, 1), 1)
+    return WeeklyTonnage(
+        sets=s, reps=r,
+        avg_load_per_rep_kg=avg_load,
+        total_volume_kg=round(L, 1),
+        _legacy_load_kg=legacy,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1515,9 +1569,29 @@ def anthropometric_indices(
     and waist-hip ratio"): 0.90 (M) / 0.85 (F) for elevated risk, &gt;1.0 for
     high risk. The "&gt;1.0 high risk" tier is a conservative clinical
     threshold used by the WHO STEPS instrument. See audit finding F24.
+
+    P1 #9 — validates that waist < hip (a waist ≥ hip is physiologically
+    unusual for females and indicates either measurement error or extreme
+    abdominal adiposity). Adds a note rather than raising because the
+    calculation is still meaningful; the user should be alerted to verify
+    the measurements.
     """
     notes: List[str] = []
     whtr = whtr_cat = whr = whr_cat = absi = absi_z = absi_cat = None
+    # P1 #9 — basic validation for anthropometric inputs.
+    _validate_positive("height_cm", height_cm)
+    _validate_positive("weight_kg", weight_kg)
+    for name, val in (("waist_cm", waist_cm), ("hip_cm", hip_cm)):
+        if val is not None and val <= 0:
+            raise ValueError(f"{name} must be positive when provided, got {val}")
+    # P1 #9 — flag waist >= hip as a measurement-error indicator (rare except
+    # in extreme central adiposity; the user should verify).
+    if waist_cm is not None and hip_cm is not None and waist_cm >= hip_cm:
+        notes.append(
+            f"Warning: waist_cm ({waist_cm}) >= hip_cm ({hip_cm}). This is "
+            f"unusual (except in extreme central adiposity) — verify the "
+            f"measurements were taken correctly."
+        )
     height_m = height_cm / 100.0
 
     if waist_cm is not None and height_cm > 0:
