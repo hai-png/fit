@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from itertools import product
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 
 # --------------------------------------------------------------------------- #
@@ -71,7 +71,9 @@ class AgeGroup(str, Enum):
     """
     YOUNG = "young"      # 13-30 (includes adolescents)
     ADULT = "adult"      # 31-45
-    MIDDLE = "middle"    # 46+
+    MIDDLE = "middle"    # 46-64
+    SENIOR = "senior"    # 65+ (P2 #18 — separated from MIDDLE so a 90-year-old
+                         # does not share a bucket with a 46-year-old)
 
 
 class Sex(str, Enum):
@@ -159,7 +161,7 @@ class ArchetypeSignature:
             f"{self.activity.value[:3].upper()}-"
             f"{self.diet.value[:4].upper()}-"
             f"{_ENV_CODES[self.environment]}-"
-            f"{self.session.value.split('_')[1]}"
+            f"{_SESSION_CODES[self.session]}"
         )
 
     def __str__(self) -> str:
@@ -170,6 +172,18 @@ _ENV_CODES = {
     TrainingEnvironment.HOME_BODYWEIGHT: "HOM",
     TrainingEnvironment.HOME_GYM: "HGY",
     TrainingEnvironment.GYM_FULL: "GYM",
+}
+
+# P2 #38 — explicit SessionLength → code-segment mapping. Previously
+# `self.session.value.split('_')[1]` was used, which is fragile: a new
+# SessionLength value like `rest_day` would yield `"day"` instead of the
+# intended duration. An explicit mapping makes intent clear and fails
+# loudly (KeyError) if a new value is added without updating this dict.
+_SESSION_CODES = {
+    SessionLength.EXPRESS_30: "30",
+    SessionLength.SHORT_45: "45",
+    SessionLength.STANDARD_60: "60",
+    SessionLength.EXTENDED_90: "90",
 }
 
 # Per-dimension prefix lengths used by ``code()``. Centralized here so the
@@ -238,7 +252,7 @@ class TraineeCategory(str, Enum):
     NEW_TRAINEE_HEALTHY = "new_trainee_healthy"  # Healthy BW, new to training → Recomp / Bulk
 
 
-@dataclass
+@dataclass(frozen=True)
 class TraineeProfile:
     """Classification result with strategy and coaching notes."""
     category: TraineeCategory
@@ -253,7 +267,7 @@ class TraineeProfile:
 # --------------------------------------------------------------------------- #
 # Population catalog                                                          #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class ArchetypeProfile:
     """Human-friendly description and coaching notes for an archetype.
 
@@ -291,7 +305,7 @@ def enumerate_signatures() -> List[ArchetypeSignature]:
     return list(iter_signatures())
 
 
-def iter_signatures():
+def iter_signatures() -> Iterator["ArchetypeSignature"]:
     """Lazy generator yielding every possible archetype signature."""
     for combo in product(
         GoalArchetype, Somatotype, ExperienceLevel, AgeGroup, Sex,
@@ -509,8 +523,10 @@ CURATED_PROFILES: Dict[str, ArchetypeProfile] = {
 
 
 def get_curated(name: str) -> Optional[ArchetypeProfile]:
+    """Look up a curated profile by nickname; returns None if not found."""
     return CURATED_PROFILES.get(name)
 
 
 def all_curated() -> List[ArchetypeProfile]:
+    """Return all curated archetype profiles."""
     return list(CURATED_PROFILES.values())

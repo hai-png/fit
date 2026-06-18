@@ -44,7 +44,7 @@ from .decision_trees import (
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExercisePlanProtocol:
     profile_scope: str
     split: str
@@ -67,7 +67,7 @@ class ExercisePlanProtocol:
     special_population_modifiers: List[str] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=True)
 class MealPlanProtocol:
     profile_scope: str
     diet_mode: str
@@ -82,7 +82,7 @@ class MealPlanProtocol:
     progress_tracking_protocol: List[str]
 
 
-@dataclass
+@dataclass(frozen=True)
 class CompleteProfileProtocol:
     exercise: ExercisePlanProtocol
     meal: MealPlanProtocol
@@ -113,28 +113,42 @@ MOVEMENT_PRIORITY = {
 
 
 def _per_session_caps(session: SessionLength, experience: ExperienceLevel) -> Dict[str, int]:
-    base = {
+    # P2 (NEW-P2 #21) — use .get() with a fallback so a new SessionLength
+    # enum value does not crash with KeyError. Previously {...}[session]
+    # raised if a new value was added without updating this dict.
+    _SETS_PER_MUSCLE = {
         SessionLength.EXPRESS_30: 5,
         SessionLength.SHORT_45: 7,
         SessionLength.STANDARD_60: 9,
         SessionLength.EXTENDED_90: 11,
-    }[session]
+    }
+    _HARD_SETS_TOTAL = {
+        SessionLength.EXPRESS_30: 14,
+        SessionLength.SHORT_45: 20,
+        SessionLength.STANDARD_60: 26,
+        SessionLength.EXTENDED_90: 34,
+    }
+    # Default to STANDARD_60 caps if session is unknown.
+    base = _SETS_PER_MUSCLE.get(session, _SETS_PER_MUSCLE[SessionLength.STANDARD_60])
     if experience == ExperienceLevel.BEGINNER:
         base = min(base, 7)
     return {
         "max_sets_per_muscle_per_session": base,
-        "max_hard_sets_total_per_session": {
-            SessionLength.EXPRESS_30: 14,
-            SessionLength.SHORT_45: 20,
-            SessionLength.STANDARD_60: 26,
-            SessionLength.EXTENDED_90: 34,
-        }[session],
+        "max_hard_sets_total_per_session": _HARD_SETS_TOTAL.get(
+            session, _HARD_SETS_TOTAL[SessionLength.STANDARD_60]
+        ),
     }
 
 
 def _conditioning(goal: GoalArchetype, days_per_week: int) -> List[str]:
     lifting_minutes = 45 * max(1, days_per_week)
-    cap = int(lifting_minutes * 0.5)
+    # P1 #4 — apply max(30, ...) floor to match recommender._cardio_prescription.
+    # Previously protocols used cap = int(lifting_minutes * 0.5) (no floor)
+    # while the prescription used max(30, int(lifting_minutes * 0.5)). For
+    # FAT_LOSS days=1, protocol said "capped at 22 min/week" while the
+    # prescription returned weekly_cardio_minutes=30 — contradicting each
+    # other in user-visible output.
+    cap = max(30, int(lifting_minutes * 0.5))
     if goal == GoalArchetype.FAT_LOSS:
         return [
             f"Start with 45-90 min/week Zone-2 cardio, capped at {cap} min/week (< half lifting time).",
@@ -201,7 +215,7 @@ def _special_modifiers(age: int, sex: Sex, goal: GoalArchetype,
 def build_exercise_plan_protocol(
     goal: GoalArchetype, experience: ExperienceLevel, days_per_week: int,
     session_length: SessionLength, environment: TrainingEnvironment,
-    age: int = 30, sex: Sex = Sex.MALE,
+    age: int = 30, sex: Optional[Sex] = None,
     medical_flags: Optional[Dict[str, bool]] = None,
 ) -> ExercisePlanProtocol:
     split = training_split(goal, experience, days_per_week)
@@ -312,6 +326,8 @@ def build_meal_plan_protocol(
     macros: Macros, meals_per_day: int, activity: ActivityLevel,
 ) -> MealPlanProtocol:
     micros = micronutrient_targets(calories)
+    # P2 #30 — defensive clamp for direct callers bypassing ClientProfile
+    # validation (which already enforces meals_per_day ∈ [3, 5]).
     meal_count = max(3, min(5, meals_per_day))
     if goal == GoalArchetype.FAT_LOSS:
         calorie_notes = [
@@ -383,7 +399,7 @@ def build_complete_profile_protocol(
     session_length: SessionLength, environment: TrainingEnvironment,
     diet: DietaryPreference, calories: float, macros: Macros,
     meals_per_day: int, activity: ActivityLevel, age: int = 30,
-    sex: Sex = Sex.MALE,
+    sex: Optional[Sex] = None,
     medical_flags: Optional[Dict[str, bool]] = None,
 ) -> CompleteProfileProtocol:
     return CompleteProfileProtocol(

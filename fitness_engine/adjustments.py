@@ -17,9 +17,9 @@ Sources:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Union
 
-from .archetypes import ExperienceLevel
+from .archetypes import ExperienceLevel, Sex
 from .calculators import BULK_MONTHLY_RATE, FAT_LOSS_WEEKLY_RATE
 
 
@@ -28,17 +28,34 @@ from .calculators import BULK_MONTHLY_RATE, FAT_LOSS_WEEKLY_RATE
 # --------------------------------------------------------------------------- #
 # Body-fat % boundaries for phase transitions. Men's boundaries are tighter;
 # add ~8% for women.
+# P2 #33 — keyed by Sex enum (was string "male"/"female"); use the
+# cut_bulk_boundary() helper below for backwards-compatible string lookup.
 CUT_BULK_BOUNDARIES = {
-    # (sex, lower_limit, upper_limit) in body-fat %
-    "male":   {"end_cut": 10, "end_bulk": 20},
-    "female": {"end_cut": 18, "end_bulk": 28},
+    Sex.MALE:   {"end_cut": 10, "end_bulk": 20},
+    Sex.FEMALE: {"end_cut": 18, "end_bulk": 28},
 }
+
+
+def cut_bulk_boundary(sex: Union[Sex, str]) -> Dict[str, int]:
+    """Return the cut/bulk BF% boundaries for the given sex.
+
+    Accepts either a ``Sex`` enum or a string ("male"/"female") for
+    backwards compatibility. Raises ValueError if the input is not a
+    recognised sex. See P2 #33.
+    """
+    if isinstance(sex, str):
+        sex = Sex(sex.lower())
+    elif sex is None:
+        raise ValueError("sex is required (got None)")
+    if sex not in CUT_BULK_BOUNDARIES:
+        raise ValueError(f"unknown sex {sex!r}; expected one of {list(CUT_BULK_BOUNDARIES)}")
+    return dict(CUT_BULK_BOUNDARIES[sex])
 
 
 # --------------------------------------------------------------------------- #
 # Fat-loss troubleshooting checklist                                          #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class CutAdjustmentChecklist:
     """Decision-tree checklist for when fat loss stalls (cutting).
 
@@ -47,7 +64,9 @@ class CutAdjustmentChecklist:
     """
     steps: List[Dict[str, str]] = field(default_factory=list)
     cardio_guidance: str = ""
-    adjustment_kcal: int = 200
+    # P2 #34 — changed from 200 to 225 (midpoint of the 200-250 range cited
+    # in step-10 text) to eliminate the internal inconsistency.
+    adjustment_kcal: int = 225
 
 
 def cut_adjustment_checklist() -> CutAdjustmentChecklist:
@@ -135,14 +154,14 @@ def cut_adjustment_checklist() -> CutAdjustmentChecklist:
             "If you lift 3 hours/week, cap cardio at 90 min/week. "
             "Excessive cardio is unsustainable and interferes with recovery."
         ),
-        adjustment_kcal=200,
+        adjustment_kcal=225,
     )
 
 
 # --------------------------------------------------------------------------- #
 # Bulk adjustment checklist                                                   #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class BulkAdjustmentChecklist:
     """Decision-tree checklist for when weight gain stalls (bulking)."""
     steps: List[Dict[str, str]] = field(default_factory=list)
@@ -225,7 +244,7 @@ def bulk_adjustment_checklist() -> BulkAdjustmentChecklist:
 # --------------------------------------------------------------------------- #
 # Training plateau troubleshooting                                            #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class PlateauChecklist:
     """Training plateau decision tree.
 
@@ -300,7 +319,7 @@ def training_plateau_checklist() -> PlateauChecklist:
 # --------------------------------------------------------------------------- #
 # Progress tracking guidance                                                  #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class ProgressTrackingGuide:
     """Guidance on how to track diet and training progress.
 
@@ -314,6 +333,10 @@ class ProgressTrackingGuide:
 
 
 def progress_tracking_guide() -> ProgressTrackingGuide:
+    """Return RippedBody's diet/training progress-tracking guidance.
+
+    Source: rippedbody.com/diet-progress-tracking
+    """
     return ProgressTrackingGuide(
         weight_tracking=[
             "Weigh yourself every morning, immediately after using the "
@@ -357,7 +380,7 @@ def progress_tracking_guide() -> ProgressTrackingGuide:
 # --------------------------------------------------------------------------- #
 # Metabolic adaptation guidance                                               #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class MetabolicAdaptationInfo:
     """Information about metabolic adaptation during dieting.
 
@@ -370,6 +393,11 @@ class MetabolicAdaptationInfo:
 
 
 def metabolic_adaptation_info() -> MetabolicAdaptationInfo:
+    """Return metabolic-adaptation explanation and mitigation.
+
+    Sources: zolthealth.com/learn/what-is-adaptive-tdee,
+    rippedbody.com/calories/
+    """
     return MetabolicAdaptationInfo(
         explanation=(
             "When you diet, your metabolism slows down to fight the calorie "
@@ -423,7 +451,7 @@ PROGRESS_RATES = {
 # --------------------------------------------------------------------------- #
 # Initial calorie assessment (first 3-4 weeks)                                #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class InitialAssessmentGuidance:
     """Structured initial-assessment guidance.
 
@@ -463,12 +491,15 @@ def initial_assessment_guidance(
 
 
 def initial_assessment_guidance_structured(
-    goal: str, expected_change_per_week_kg: float,
+    expected_change_per_week_kg: float,
 ) -> InitialAssessmentGuidance:
     """Structured version of :func:`initial_assessment_guidance`.
 
     Returns an :class:`InitialAssessmentGuidance` dataclass with machine-
     readable fields. See audit finding F73.
+
+    P2 #35 — removed the unused ``goal`` parameter (was never read in the
+    function body). Callers that previously passed ``goal`` should drop it.
     """
     rules = [
         {

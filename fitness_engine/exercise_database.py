@@ -23,8 +23,11 @@ Usage:
 
 from __future__ import annotations
 
+import dataclasses as _dc
 import json
 import os
+import sys
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -37,7 +40,7 @@ from .archetypes import TrainingEnvironment
 # Data classes for scraped exercise format
 # --------------------------------------------------------------------------- #
 
-@dataclass
+@dataclass(frozen=True)
 class ScrapedExercise:
     """Extended exercise representation from scraped database."""
     id: str
@@ -57,16 +60,53 @@ class ScrapedExercise:
     alternative_names: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
     best_for: List[str] = field(default_factory=list)
-    
+
+    def __post_init__(self) -> None:
+        """Coerce numeric fields to int.
+
+        JSON sources sometimes return strings ("3", "7400000") for difficulty
+        and views. Without coercion, downstream filters like
+        ``filter_by_difficulty`` raise TypeError on `'3' <= 3`, and
+        ``generate_report`` fails to sum views. See P1 #16.
+
+        Because the dataclass is frozen, we use ``object.__setattr__`` to
+        mutate fields from ``__post_init__``.
+        """
+        for fld in ("difficulty", "views", "comments"):
+            v = getattr(self, fld)
+            if isinstance(v, str):
+                try:
+                    object.__setattr__(self, fld, int(v))
+                except ValueError:
+                    object.__setattr__(self, fld, 0)
+            elif v is None:
+                object.__setattr__(self, fld, 0)
+        # Normalise mechanics to lowercase so case-sensitive comparisons in
+        # get_compound_exercises_for_environment (line 408) work regardless of
+        # how the JSON capitalised the value. See P1 #17.
+        if isinstance(self.mechanics, str):
+            object.__setattr__(self, "mechanics", self.mechanics.lower())
+        if isinstance(self.experience_level, str):
+            object.__setattr__(self, "experience_level", self.experience_level.lower())
+
     def to_engine_exercise(self):
-        """Convert to engine Exercise format."""
-        from .exercise_plans import Exercise
+        """Convert to engine Exercise format.
+
+        P2 #30 — equipment tokens are now normalised via
+        ``_normalise_external_equipment`` (imported from exercise_plans) so
+        the resulting Exercise is usable by the picker. Previously a
+        ScrapedExercise with ``equipment=["dumbbell"]`` (singular) produced
+        an Exercise with ``equipment=["dumbbell"]``, which the picker
+        rejected (expects ``"dumbbells"``).
+        """
+        from .exercise_plans import Exercise, _normalise_external_equipment
+        normalised = _normalise_external_equipment(list(self.equipment))
         return Exercise(
             name=self.name,
             pattern=self.pattern,
             primary_muscle=self.primary_muscle,
             secondary_muscles=self.secondary_muscles,
-            equipment=self.equipment,
+            equipment=normalised if normalised is not None else list(self.equipment),
             difficulty=self.difficulty,
             regression=self.regression,
             progression=self.progression,
@@ -88,17 +128,10 @@ class ScrapedExercise:
 # `["bodyweight"]` equipment entries via set intersection; instead,
 # `_equipment_feasible` special-cases bodyweight exercises (empty list).
 
-ENVIRONMENT_EQUIPMENT: Dict[TrainingEnvironment, List[str]] = {
-    TrainingEnvironment.HOME_BODYWEIGHT: [],  # Bodyweight only — no equipment
-    TrainingEnvironment.HOME_GYM: [
-        "dumbbells", "bands", "bench", "pullup_bar", "kettlebell",
-    ],
-    TrainingEnvironment.GYM_FULL: [
-        "barbell", "bench", "dumbbells", "machine", "cardio_machine",
-        "kettlebell", "bands", "pullup_bar", "trap_bar", "ez_bar",
-        "exercise_ball",
-    ],
-}
+# P2 (NEW-P2 #11) — ENVIRONMENT_EQUIPMENT is now imported from
+# exercise_plans.py to eliminate the DRY violation. The two files used to
+# have separate copies that could drift; a unit test asserts they match.
+from .exercise_plans import ENVIRONMENT_EQUIPMENT  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
@@ -186,7 +219,7 @@ class ExerciseDatabase:
             self._build_fallback_database()
             return
         
-        with open(path, 'r') as f:
+        with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         self.metadata = data.get('metadata', {})
@@ -197,16 +230,22 @@ class ExerciseDatabase:
         # the entire load. See audit finding F41.
         skipped = 0
         for ex_data in data.get('exercises', []):
+            # Defensive: if a malformed JSON has `exercises` as a dict (not a
+            # list), iterating yields strings, and `ex_data.items()` raises
+            # AttributeError — previously uncaught. See P1 #15.
+            if not isinstance(ex_data, dict):
+                print(f"[fitness_engine] warning: skipped non-dict exercise "
+                      f"record: {ex_data!r}", file=sys.stderr)
+                skipped += 1
+                continue
             try:
                 # Filter to known ScrapedExercise fields so unexpected keys
                 # in the JSON do not cause a TypeError.
-                import dataclasses as _dc
                 field_names = {f.name for f in _dc.fields(ScrapedExercise)}
                 filtered = {k: v for k, v in ex_data.items() if k in field_names}
                 ex = ScrapedExercise(**filtered)
                 self.exercises[ex.id] = ex
-            except (TypeError, ValueError, KeyError) as e:
-                import sys
+            except (TypeError, ValueError, KeyError, AttributeError) as e:
                 print(f"[fitness_engine] warning: skipped malformed exercise "
                       f"record: {e}. Record: {ex_data!r}", file=sys.stderr)
                 skipped += 1
@@ -339,7 +378,7 @@ class ExerciseDatabase:
         return all(eq in avail for eq in required_equipment)
     
     def search(self, query: str) -> List[ScrapedExercise]:
-        """Search exercises by name or alternative names."""
+        """Search exercises by name, alternative names, or tags."""
         query = query.lower()
         results = []
         for ex in self.exercises.values():
@@ -405,8 +444,12 @@ class ExerciseDatabase:
     ) -> Dict[str, List[ScrapedExercise]]:
         """Get compound exercises grouped by pattern for an environment."""
         exercises = self.get_exercises_for_environment(environment, max_difficulty=4)
-        exercises = [ex for ex in exercises if ex.mechanics == "compound"]
-        
+        # Case-insensitive comparison — JSON source may have "Compound" or
+        # "COMPOUND". ScrapedExercise.__post_init__ now lowercases the field,
+        # but this defensive .lower() protects exercises constructed directly
+        # without going through __post_init__. See P1 #17.
+        exercises = [ex for ex in exercises if ex.mechanics.lower() == "compound"]
+
         grouped: Dict[str, List[ScrapedExercise]] = {}
         for ex in exercises:
             if ex.pattern not in grouped:
@@ -422,8 +465,14 @@ class ExerciseDatabase:
         max_difficulty: int = 4,
         exclude_ids: Optional[Set[str]] = None,
     ) -> List[ScrapedExercise]:
-        """Build a training session by selecting exercises for each pattern."""
-        exclude_ids = exclude_ids or set()
+        """Build a training session by selecting exercises for each pattern.
+
+        P2 (NEW-P2 #5) — operates on a local copy of exclude_ids so the
+        caller's set is not mutated. Previously the function added to the
+        caller's set as a side effect.
+        """
+        # P2 (NEW-P2 #5) — copy the caller's set so we don't mutate it.
+        exclude_ids = set(exclude_ids or ())
         selected = []
         
         for pattern in patterns:
@@ -443,13 +492,16 @@ class ExerciseDatabase:
         
         return selected
     
-    def to_engine_format(self) -> Dict[str, object]:
-        """Convert all scraped exercises to engine Exercise format."""
-        
-        engine_exercises = {}
+    def to_engine_format(self):
+        """Convert all scraped exercises to engine Exercise format.
+
+        Returns a ``Dict[str, Exercise]`` (typed loosely here to avoid a
+        circular import at type-check time). See P2 (NEW-P2 #4).
+        """
+        from .exercise_plans import Exercise
+        engine_exercises: Dict[str, Exercise] = {}
         for ex_id, ex in self.exercises.items():
             engine_exercises[ex_id] = ex.to_engine_exercise()
-        
         return engine_exercises
     
     def generate_report(self) -> Dict:
@@ -499,35 +551,63 @@ class ExerciseDatabase:
 # Convenience functions
 # --------------------------------------------------------------------------- #
 
+# P2 #31 — module-level lock for thread-safe singleton init.
+_get_database_lock = threading.Lock()
+
+
 def get_database() -> ExerciseDatabase:
-    """Get a singleton instance of the exercise database."""
-    if not hasattr(get_database, '_instance'):
-        get_database._instance = ExerciseDatabase()
+    """Get a singleton instance of the exercise database.
+
+    P2 #31 — thread-safe via double-checked locking. Previously two threads
+    calling get_database() simultaneously could both pass the hasattr check
+    and both construct an ExerciseDatabase, racing on file I/O.
+    """
+    if hasattr(get_database, '_instance'):
+        return get_database._instance
+    with _get_database_lock:
+        if not hasattr(get_database, '_instance'):
+            get_database._instance = ExerciseDatabase()
     return get_database._instance
 
 
 def get_exercises_for_goal(
     environment: TrainingEnvironment,
-    goal: str,
+    goal,
     max_per_pattern: int = 2,
 ) -> List[ScrapedExercise]:
-    """Get exercises optimized for a specific goal archetype."""
+    """Get exercises optimized for a specific goal archetype.
+
+    ``goal`` accepts either a ``GoalArchetype`` enum or its string value
+    (e.g. ``"fat_loss"``, ``"muscle_gain"``, ``"strength"``). Strings are
+    coerced to the enum; unknown values raise ``ValueError``.
+    See NEW-P2 #7.
+    """
+    # Coerce str → GoalArchetype for type safety.
+    from .archetypes import GoalArchetype
+    if isinstance(goal, str):
+        try:
+            goal = GoalArchetype(goal)
+        except ValueError:
+            raise ValueError(
+                f"unknown goal {goal!r}; expected one of "
+                f"{[g.value for g in GoalArchetype]}"
+            )
     db = get_database()
     exercises = db.get_exercises_for_environment(environment)
-    
+
     # Filter by goal alignment
-    if goal in ['fat_loss', 'general_health']:
+    if goal in (GoalArchetype.FAT_LOSS, GoalArchetype.GENERAL_HEALTH):
         # Prefer compound exercises, bodyweight-friendly
-        exercises = [ex for ex in exercises if ex.mechanics == 'compound']
+        exercises = [ex for ex in exercises if ex.mechanics.lower() == 'compound']
         exercises.sort(key=lambda x: x.difficulty)
-    elif goal == 'muscle_gain':
+    elif goal == GoalArchetype.MUSCLE_GAIN:
         # Prefer high-view compound exercises
         exercises.sort(key=lambda x: x.views, reverse=True)
-    elif goal == 'strength':
+    elif goal == GoalArchetype.STRENGTH:
         # Prefer lower difficulty compound lifts
         exercises = [ex for ex in exercises if ex.difficulty >= 3]
-        exercises = [ex for ex in exercises if ex.mechanics == 'compound']
-    
+        exercises = [ex for ex in exercises if ex.mechanics.lower() == 'compound']
+
     return exercises[:max_per_pattern * 6]  # ~6 patterns × 2 exercises
 
 

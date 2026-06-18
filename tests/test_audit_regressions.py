@@ -936,7 +936,8 @@ class TestP2AdditionalFixes(unittest.TestCase):
     # ---- F73: structured initial assessment guidance ----
     def test_F73_structured_assessment_guidance(self):
         from fitness_engine.adjustments import initial_assessment_guidance_structured
-        result = initial_assessment_guidance_structured("fat_loss", 0.5)
+        # P2 #35 — `goal` parameter removed; signature is now (expected_change_per_week_kg,).
+        result = initial_assessment_guidance_structured(0.5)
         self.assertGreater(len(result.rules), 0)
         self.assertIn("condition", result.rules[0])
         self.assertIn("action", result.rules[0])

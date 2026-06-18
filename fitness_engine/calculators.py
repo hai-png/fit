@@ -22,6 +22,7 @@ Every calculator is pure-functional and returns a typed result object.
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -35,7 +36,7 @@ from .archetypes import (
 # --------------------------------------------------------------------------- #
 # Result containers                                                           #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class BodyComposition:
     bmi: float
     bmi_category: str
@@ -45,7 +46,7 @@ class BodyComposition:
     estimation_method: str   # "navy", "deurenberg", "visual", "user_input"
 
 
-@dataclass
+@dataclass(frozen=True)
 class EnergyExpenditure:
     bmr: float
     tdee: float
@@ -54,7 +55,7 @@ class EnergyExpenditure:
     calorie_target_breakdown: dict
 
 
-@dataclass
+@dataclass(frozen=True)
 class Macros:
     calories: float
     protein_g: float
@@ -66,23 +67,27 @@ class Macros:
     rationale: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class Hydration:
     base_ml: float
     workout_bonus_ml: float
     total_ml: float
 
 
-@dataclass
+@dataclass(frozen=True)
 class StrengthEstimate:
     epley_1rm: float
     brzycki_1rm: float
     lander_1rm: float
     average_1rm: float
     pct_of_1rm: dict
+    # Human-readable note appended when reps are clamped to MAX_1RM_REPS so
+    # the caller is aware their input was modified. See audit finding F19
+    # (previously claimed in docstring but never implemented).
+    rationale: str = ""
 
 
-@dataclass
+@dataclass(frozen=True)
 class CardioZones:
     age: int
     hr_max_simple: int
@@ -102,10 +107,35 @@ class BMICategory(str, Enum):
     OBESE_III = "obese_class_iii"
 
 
+def _validate_positive(name: str, value: float, *, allow_zero: bool = False) -> None:
+    """Raise ValueError if value is negative, NaN, or (when allow_zero=False) zero.
+
+    Centralised input-validation helper for calculator functions. Previously
+    each function had its own ad-hoc check (or none at all), and 11 functions
+    silently processed physically impossible inputs like weight=-5, age=-10,
+    body_fat=200%. See P1 #7.
+    """
+    if value is None:
+        raise ValueError(f"{name} must not be None")
+    if isinstance(value, bool):
+        # bool is a subclass of int; reject explicitly to surface the bug.
+        raise ValueError(f"{name} must be a number, got bool: {value!r}")
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number, got {type(value).__name__}: {value!r}")
+    if math.isnan(value):
+        raise ValueError(f"{name} must not be NaN")
+    if math.isinf(value):
+        raise ValueError(f"{name} must not be infinite")
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative, got {value}")
+    if value == 0 and not allow_zero:
+        raise ValueError(f"{name} must be positive, got {value}")
+
+
 def bmi(weight_kg: float, height_cm: float) -> float:
     """Body Mass Index (kg/m^2)."""
-    if height_cm <= 0:
-        raise ValueError("height_cm must be positive")
+    _validate_positive("weight_kg", weight_kg)
+    _validate_positive("height_cm", height_cm)
     h = height_cm / 100.0
     return weight_kg / (h * h)
 
@@ -162,7 +192,6 @@ def body_fat_navy(
         # The raw estimate fell outside the physiological band; surface this
         # so the caller knows the inputs may be inaccurate. We do not raise
         # because the clamp is intentional for downstream safety.
-        import warnings
         warnings.warn(
             f"Navy BF estimate {bf:.1f}% fell outside [2, 60] and was "
             f"clamped to {clamped:.1f}%. Verify tape measurements.",
@@ -334,7 +363,17 @@ def bmr_harris_benedict(
 
     Men:   BMR = 66 + (13.7 × kg) + (5 × cm) − (6.8 × age)
     Women: BMR = 655 + (9.6 × kg) + (1.8 × cm) − (4.7 × age)
+
+    Note: these are the *rounded* Harris-Benedict 1919 coefficients. The
+    original 1919 paper uses (66.5, 13.75, 5.003, 6.75) for men and
+    (655.1, 9.563, 1.850, 4.676) for women; the 1984 Roza-Shizgal revision
+    is yet another set. The rounded values used here match common
+    fitness-coaching references and differ from the original by ~6 kcal/day
+    at typical inputs. See P2 #11.
     """
+    _validate_positive("weight_kg", weight_kg)
+    _validate_positive("height_cm", height_cm)
+    _validate_positive("age", age)
     if sex == Sex.MALE:
         return 66 + (13.7 * weight_kg) + (5 * height_cm) - (6.8 * age)
     return 655 + (9.6 * weight_kg) + (1.8 * height_cm) - (4.7 * age)
@@ -344,6 +383,9 @@ def bmr_mifflin(
     weight_kg: float, height_cm: float, age: int, sex: Sex,
 ) -> float:
     """Mifflin-St Jeor BMR (reference-guide default general formula)."""
+    _validate_positive("weight_kg", weight_kg)
+    _validate_positive("height_cm", height_cm)
+    _validate_positive("age", age)
     base = 10 * weight_kg + 6.25 * height_cm - 5 * age
     return base + 5 if sex == Sex.MALE else base - 161
 
@@ -436,6 +478,9 @@ def calorie_target(
         alpert_safeguard_applied = False
         if body_fat_pct is not None:
             fat_mass_lb = bodyweight_kg * (body_fat_pct / 100.0) * 2.20462
+            # Alpert 2005 derives ~31.5 kcal/lb/day; we use the conservative
+            # 22 kcal/lb/day ceiling widely cited in fitness-coaching practice.
+            # See P2 #21.
             alpert_max_deficit = max(0.0, fat_mass_lb * 22.0)
             if deficit > alpert_max_deficit:
                 deficit = alpert_max_deficit
@@ -492,7 +537,11 @@ def calorie_target(
         breakdown.update({"mode": "default", "delta": 0.0})
 
     # Safety floor — reference guide: women ≥1200 kcal, men ≥1500 kcal.
-    min_calories = 1500 if sex == Sex.MALE else 1200
+    # When sex is None (unknown), apply the more conservative male floor
+    # (1500 kcal) rather than silently defaulting to the female floor.
+    # Previously, the `else` branch caught both `Sex.FEMALE` and `None`,
+    # under-protecting unknown-sex male users by 300 kcal/day.
+    min_calories = 1200 if sex == Sex.FEMALE else 1500
     if target < min_calories:
         breakdown["warning"] = (
             f"Calculated target {target:.0f} kcal is below the {min_calories} "
@@ -541,10 +590,54 @@ def energy_expenditure(
 # rippedbody.com/macros — protein is set by lean mass or body weight,
 # fat is 15-30% of calories, carbs fill the rest.
 
+def _protein_multiplier(
+    goal: GoalArchetype,
+    lean_mass_kg: Optional[float], body_fat_pct: Optional[float],
+    is_vegan: bool, sex: Optional[Sex],
+) -> Tuple[float, str, float, str]:
+    """Return (multiplier, basis, reference_mass, phase, label) for protein targeting.
+
+    Extracted as a shared helper to eliminate the DRY violation between
+    ``_protein_target`` and ``_protein_target_structured``. See P2 #17.
+
+    Returns:
+        (mult, basis, ref_mass, phase, label) where:
+        - mult is the g/kg multiplier
+        - basis is one of "lean_mass" / "target_bw" / "body_weight"
+        - ref_mass is the reference mass to multiply (caller supplies weight_kg
+          and target_weight_kg via the basis; this function returns the
+          multiplier and the basis NAME only — actual ref_mass must be
+          resolved by the caller because it depends on which fallback path
+          was taken. To keep the helper pure, we return ref_mass=None when
+          the caller must resolve it, OR the actual lean_mass_kg when the
+          lean-mass path is taken.)
+        - phase is "cutting" or "bulk_recomp"
+        - label is "vegan" or "omnivore"
+    """
+    label = 'vegan' if is_vegan else 'omnivore'
+    if body_fat_pct is not None and lean_mass_kg is not None and lean_mass_kg > 0:
+        # Lean-mass-based targeting.
+        if goal == GoalArchetype.FAT_LOSS:
+            lean_cut_threshold = 12 if sex != Sex.FEMALE else 20
+            lean_cut = body_fat_pct <= lean_cut_threshold
+            mult = 2.6 if is_vegan else (2.8 if lean_cut else 2.5)
+            return (mult, "lean_mass", lean_mass_kg, "cutting", label,
+                    f"lean-cut≤{lean_cut_threshold}%BF")
+        mult = 2.6 if is_vegan else 2.2
+        return (mult, "lean_mass", lean_mass_kg, "bulk_recomp", label, "")
+    # Body-weight-based fallback — caller resolves ref_mass.
+    if goal == GoalArchetype.FAT_LOSS:
+        mult = 2.6 if is_vegan else 2.2
+        return (mult, "target_bw", None, "cutting", label, "")
+    mult = 2.2 if is_vegan else 1.6
+    return (mult, "body_weight", None, "bulk_recomp", label, "")
+
+
 def _protein_target(
     goal: GoalArchetype, weight_kg: float,
     lean_mass_kg: Optional[float], body_fat_pct: Optional[float],
     target_weight_kg: Optional[float], is_vegan: bool = False,
+    sex: Optional[Sex] = None,
 ) -> Tuple[float, str]:
     """Calculate protein in grams using RippedBody rules.
 
@@ -552,43 +645,37 @@ def _protein_target(
     absorbed and has lower BCAA/leucine content.
     Source: rippedbody.com/advice-for-vegans/
 
+    The lean-cut threshold (which triggers a higher 2.8 g/kg multiplier)
+    is sex-aware: 12% BF for men, 20% BF for women. Female essential fat
+    is ~10-13%, so a female at 13% BF is clinically very lean but the
+    previous code (`<= 12`) denied her the higher multiplier. See P1 #4.
+
     Returns a ``(protein_g, rationale)`` tuple. The rationale string is
     human-readable; for a machine-readable breakdown, see
     :func:`_protein_target_structured` below. See audit finding F16.
-    """
-    if body_fat_pct is not None and lean_mass_kg is not None and lean_mass_kg > 0:
-        # We have both BF% and lean mass — use lean-mass-based targeting.
-        if goal == GoalArchetype.FAT_LOSS:
-            # The outer ``if`` already guarantees body_fat_pct is not None,
-            # so the redundant ``body_fat_pct is not None`` check has been
-            # removed. See audit finding F15.
-            lean_cut = body_fat_pct <= 12
-            mult = 2.6 if is_vegan else (2.8 if lean_cut else 2.5)
-            label = 'vegan' if is_vegan else 'omnivore'
-            return round(lean_mass_kg * mult, 1), \
-                f"{mult} g/kg lean mass (cutting, BF% known, {label})"
-        mult = 2.6 if is_vegan else 2.2
-        label = 'vegan' if is_vegan else 'omnivore'
-        return round(lean_mass_kg * mult, 1), \
-            f"{mult} g/kg lean mass (bulk/recomp, BF% known, {label})"
 
-    # BF% or lean mass unknown — fall back to body-weight-based targeting.
-    if goal == GoalArchetype.FAT_LOSS:
-        ref_bw = target_weight_kg or weight_kg
-        mult = 2.6 if is_vegan else 2.2
-        label = 'vegan' if is_vegan else 'omnivore'
-        return round(ref_bw * mult, 1), \
-            f"{mult} g/kg target BW (cutting, BF% unknown, {label})"
-    mult = 2.2 if is_vegan else 1.6
-    label = 'vegan' if is_vegan else 'omnivore'
-    return round(weight_kg * mult, 1), \
-        f"{mult} g/kg body weight (bulk/recomp, BF% unknown, {label})"
+    P2 #17 — delegates to ``_protein_multiplier`` to eliminate DRY violation
+    with ``_protein_target_structured``.
+    """
+    mult, basis, ref_mass, phase, label, extra = _protein_multiplier(
+        goal, lean_mass_kg, body_fat_pct, is_vegan, sex,
+    )
+    if basis == "lean_mass":
+        return (round(ref_mass * mult, 1),
+                f"{mult} g/kg lean mass ({phase}, BF% known, {label}, {extra})" if extra
+                else f"{mult} g/kg lean mass ({phase}, BF% known, {label})")
+    if basis == "target_bw":
+        ref = target_weight_kg or weight_kg
+        return round(ref * mult, 1), f"{mult} g/kg target BW ({phase}, BF% unknown, {label})"
+    # body_weight
+    return round(weight_kg * mult, 1), f"{mult} g/kg body weight ({phase}, BF% unknown, {label})"
 
 
 def _protein_target_structured(
     goal: GoalArchetype, weight_kg: float,
     lean_mass_kg: Optional[float], body_fat_pct: Optional[float],
     target_weight_kg: Optional[float], is_vegan: bool = False,
+    sex: Optional[Sex] = None,
 ) -> Dict[str, object]:
     """Machine-readable protein-target breakdown.
 
@@ -596,30 +683,26 @@ def _protein_target_structured(
     ``"lean_mass"``, ``"target_bw"``, ``"body_weight"``), ``multiplier``,
     ``reference_mass_kg``, ``diet_mode`` (``"vegan"`` or ``"omnivore"``),
     and ``phase`` (``"cutting"`` or ``"bulk_recomp"``). See audit F16.
+
+    Sex-aware lean-cut threshold delegated to :func:`_protein_target`
+    (P1 #4 — female essential fat is ~10-13%, so the threshold moves
+    from 12% BF for men to 20% BF for women).
+
+    P2 #17 — delegates to ``_protein_multiplier`` to eliminate DRY violation
+    with ``_protein_target``.
     """
     protein_g, _ = _protein_target(
         goal, weight_kg, lean_mass_kg, body_fat_pct, target_weight_kg,
-        is_vegan=is_vegan,
+        is_vegan=is_vegan, sex=sex,
     )
-    if body_fat_pct is not None and lean_mass_kg is not None and lean_mass_kg > 0:
-        basis = "lean_mass"
-        ref_mass = lean_mass_kg
-        if goal == GoalArchetype.FAT_LOSS:
-            mult = 2.6 if is_vegan else (2.8 if body_fat_pct <= 12 else 2.5)
-            phase = "cutting"
-        else:
-            mult = 2.2
-            phase = "bulk_recomp"
-    elif goal == GoalArchetype.FAT_LOSS:
-        basis = "target_bw"
+    mult, basis, ref_mass, phase, label, _extra = _protein_multiplier(
+        goal, lean_mass_kg, body_fat_pct, is_vegan, sex,
+    )
+    # Resolve ref_mass for body-weight-based bases.
+    if basis == "target_bw":
         ref_mass = target_weight_kg or weight_kg
-        mult = 2.6 if is_vegan else 2.2
-        phase = "cutting"
-    else:
-        basis = "body_weight"
+    elif basis == "body_weight":
         ref_mass = weight_kg
-        mult = 2.2 if is_vegan else 1.6
-        phase = "bulk_recomp"
     return {
         "protein_g": protein_g,
         "basis": basis,
@@ -672,7 +755,7 @@ def macros_for(
     # 1. Protein
     protein_g, protein_rationale = _protein_target(
         goal, weight_kg, lean_mass_kg, body_fat_pct, target_weight_kg,
-        is_vegan=is_vegan,
+        is_vegan=is_vegan, sex=sex,
     )
     if is_high_protein:
         hp_floor = round(weight_kg * 2.2, 1)
@@ -762,6 +845,9 @@ def macros_for(
 # --------------------------------------------------------------------------- #
 def hydration(weight_kg: float, workout_minutes: int = 0, sex: Optional[Sex] = None) -> Hydration:
     """Daily water target. Base 30 ml/kg, +300 ml for men, +exercise fluid."""
+    _validate_positive("weight_kg", weight_kg)
+    if workout_minutes < 0:
+        raise ValueError(f"workout_minutes must be non-negative, got {workout_minutes}")
     base = weight_kg * 30 + (300 if sex == Sex.MALE else 0)
     bonus = (workout_minutes / 30.0) * 350
     return Hydration(base_ml=round(base, 0),
@@ -793,6 +879,12 @@ def one_rep_max(weight: float, reps: int) -> StrengthEstimate:
     if weight <= 0:
         raise ValueError("weight must be positive")
     r = min(reps, MAX_1RM_REPS)
+    rationale = ""
+    if reps > MAX_1RM_REPS:
+        rationale = (
+            f"Reps ({reps}) clamped to MAX_1RM_REPS ({MAX_1RM_REPS}); "
+            f"1RM estimates beyond this are unreliable."
+        )
     epley = weight * (1 + r / 30.0)
     brzycki = weight * 36.0 / (37.0 - r)
     lander = (100 * weight) / (101.3 - 2.67123 * r)
@@ -808,6 +900,7 @@ def one_rep_max(weight: float, reps: int) -> StrengthEstimate:
         lander_1rm=round(lander, 1),
         average_1rm=round(avg, 1),
         pct_of_1rm=pcts,
+        rationale=rationale,
     )
 
 
@@ -827,24 +920,36 @@ def cardio_zones(age: int, resting_hr: int = 60, measured_max_hr: Optional[int] 
     floor(low) and ceil(high)-1 within each zone to guarantee half-open
     intervals. See audit finding F20.
     """
-    import math as _math
+    _validate_positive("age", age)
+    _validate_positive("resting_hr", resting_hr)
+    if measured_max_hr is not None:
+        _validate_positive("measured_max_hr", measured_max_hr)
+        if measured_max_hr <= resting_hr:
+            raise ValueError(
+                f"measured_max_hr ({measured_max_hr}) must exceed resting_hr ({resting_hr})"
+            )
     hr_max = 220 - age  # Fox formula; kept for backwards-compat display only.
     hr_max_tanaka = measured_max_hr if measured_max_hr is not None else 208 - (0.7 * age)
     hrr = hr_max_tanaka - resting_hr
-    def pct(lo: float, hi: float) -> tuple[float, float]:
+    def pct(lo: float, hi: float, is_first: bool = False) -> tuple[float, float]:
         # Use ceil for the low bound and floor for the high bound so zones
         # are half-open [low, high] and never overlap at integer bpm values.
-        # Z5's high is rounded up to include hr_max_tanaka itself.
-        low = _math.ceil(resting_hr + hrr * lo)
+        # For NON-first zones we add +1 to the low bound so Z1.high (== Z2.low
+        # mathematically) does not put a heart rate of exactly 132 bpm in BOTH
+        # Z1 and Z2. Previously the docstring claimed half-openness but the
+        # rounded boundaries overlapped at integer bpm values. See audit F20.
+        low = math.ceil(resting_hr + hrr * lo)
+        if not is_first:
+            low = low + 1
         if hi < 1.0:
-            high = _math.floor(resting_hr + hrr * hi)
+            high = math.floor(resting_hr + hrr * hi)
         else:
-            high = _math.ceil(resting_hr + hrr * hi)
+            high = math.ceil(resting_hr + hrr * hi)
         return (float(low), float(high))
     return CardioZones(
         age=age, hr_max_simple=hr_max, hr_max_tanaka=round(hr_max_tanaka, 0),
         zones={
-            "Z1_recovery":      pct(0.50, 0.60),
+            "Z1_recovery":      pct(0.50, 0.60, is_first=True),
             "Z2_aerobic_base":  pct(0.60, 0.70),
             "Z3_tempo":         pct(0.70, 0.80),
             "Z4_threshold":     pct(0.80, 0.90),
@@ -940,11 +1045,25 @@ def infer_somatotype(
 # Age group inference                                                         #
 # --------------------------------------------------------------------------- #
 def infer_age_group(age: int) -> AgeGroup:
+    """Infer the AgeGroup bucket for a given age.
+
+    Buckets (P2 #18):
+        YOUNG  : 13-30 (includes adolescents)
+        ADULT  : 31-45
+        MIDDLE : 46-64
+        SENIOR : 65+
+    Previously a 90-year-old shared MIDDLE with a 46-year-old; SENIOR is
+    now separated. Also validates age >= 13 (ClientProfile minimum).
+    """
+    if age < 13:
+        raise ValueError(f"age must be >= 13, got {age}")
     if age < 31:
         return AgeGroup.YOUNG
     if age <= 45:
         return AgeGroup.ADULT
-    return AgeGroup.MIDDLE
+    if age <= 64:
+        return AgeGroup.MIDDLE
+    return AgeGroup.SENIOR
 
 
 # --------------------------------------------------------------------------- #
@@ -1116,7 +1235,7 @@ def classify_trainee(
                 "Track calories — guessing leads to under-eating",
                 "Choose calorie-dense foods if appetite is low",
             ]
-    else:  # bf < low_bf → shredded or skinny depending on muscle
+    else:  # bf < mid_bf (lean) → shredded or skinny depending on muscle
         if has_muscle:
             cat = TraineeCategory.SHREDDED
             strategy = "maintenance"
@@ -1187,28 +1306,43 @@ def recommend_phase_strategy(
 # --------------------------------------------------------------------------- #
 # Volume / tonnage                                                            #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class WeeklyTonnage:
     sets: int
     reps: int
-    load_kg: float
+    # P2 #19 — renamed from `load_kg` (which was actually avg load per rep,
+    # a misleading name). Kept `load_kg` as a property for backwards compat.
+    avg_load_per_rep_kg: float
     total_volume_kg: float
+
+    @property
+    def load_kg(self) -> float:
+        """Backwards-compat alias for avg_load_per_rep_kg.
+
+        Deprecated; use avg_load_per_rep_kg directly.
+        """
+        return self.avg_load_per_rep_kg
 
 
 def weekly_tonnage(sessions: List[dict]) -> WeeklyTonnage:
     """sessions: [{sets, reps, load_kg}, ...]"""
+    for i, x in enumerate(sessions):
+        for k in ("sets", "reps", "load_kg"):
+            v = x.get(k, 0)
+            if v < 0:
+                raise ValueError(f"sessions[{i}].{k} must be non-negative, got {v}")
     s = sum(x.get("sets", 0) for x in sessions)
     r = sum(x.get("reps", 0) for x in sessions)
     L = sum(x.get("sets", 0) * x.get("reps", 0) * x.get("load_kg", 0)
             for x in sessions)
-    return WeeklyTonnage(sets=s, reps=r, load_kg=round(L / max(r, 1), 1),
+    return WeeklyTonnage(sets=s, reps=r, avg_load_per_rep_kg=round(L / max(r, 1), 1),
                          total_volume_kg=round(L, 1))
 
 
 # --------------------------------------------------------------------------- #
 # Micronutrient guidelines (rippedbody.com/micros/)                           #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class MicronutrientTargets:
     """Daily micronutrient and hydration guidance.
 
@@ -1229,6 +1363,8 @@ def micronutrient_targets(calories: float) -> MicronutrientTargets:
       3000-4000 kcal → 4 cups each
       Fibre: 14 g per 1000 kcal
     """
+    if calories <= 0:
+        raise ValueError(f"calories must be positive, got {calories}")
     if calories < 2000:
         cups = 2
     elif calories < 3000:
@@ -1254,7 +1390,7 @@ def micronutrient_targets(calories: float) -> MicronutrientTargets:
 # --------------------------------------------------------------------------- #
 # Maximum muscular potential (rippedbody.com/maximum-muscular-potential/)     #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class MuscularPotential:
     """Drug-free muscular potential estimates."""
     berkhan_stage_max_kg: float        # Berkhan model: (height_cm - 100)
@@ -1275,6 +1411,14 @@ def muscular_potential(
       • FFMI = fat-free mass / height_m² (Kouri et al. 1995)
       • Natural FFMI ceiling: ~25
     """
+    _validate_positive("height_cm", height_cm)
+    _validate_positive("weight_kg", weight_kg)
+    _validate_positive("body_fat_pct", body_fat_pct)
+    if body_fat_pct > 70:
+        raise ValueError(
+            f"body_fat_pct={body_fat_pct} is physiologically impossible (>70%). "
+            f"Use 2-70 for valid inputs."
+        )
     # Berkhan model (midpoint of 98-102)
     berkhan_max = height_cm - 100
 
@@ -1284,8 +1428,9 @@ def muscular_potential(
     ffmi = lean_mass / (height_m * height_m)
 
     # FFMI normalized to 1.8m (for comparison)
-    # Normalized FFMI = FFMI + 6.3 × (1.8 − height_m)
-    normalized_ffmi = ffmi + 6.3 * (1.8 - height_m)
+    # Normalized FFMI = FFMI + 6.1 × (1.8 − height_m) — Kouri et al. 1995.
+    # Previously used 6.3, which contradicts the cited source. See P2 #12.
+    normalized_ffmi = ffmi + 6.1 * (1.8 - height_m)
 
     if normalized_ffmi < 18:
         cat = "below average"
@@ -1320,7 +1465,7 @@ def muscular_potential(
 # --------------------------------------------------------------------------- #
 # Anthropometric health indices                                               #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class AnthropometricIndices:
     waist_to_height_ratio: Optional[float]
     waist_to_height_category: Optional[str]
@@ -1347,6 +1492,7 @@ _ABSI_REFERENCE = {
 
 def ideal_body_weight_devine(height_cm: float, sex: Sex) -> float:
     """Devine ideal body weight, for clinical reference only."""
+    _validate_positive("height_cm", height_cm)
     inches = height_cm / 2.54
     over_60 = max(0.0, inches - 60.0)
     base = 50.0 if sex == Sex.MALE else 45.5
@@ -1431,7 +1577,7 @@ def anthropometric_indices(
 # --------------------------------------------------------------------------- #
 # Macro adjustment, adaptive TDEE, and reverse dieting                         #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class MacroAdjustment:
     calories_delta: float
     protein_g: float
@@ -1472,7 +1618,7 @@ def adjust_macros_for_calorie_change(
     )
 
 
-@dataclass
+@dataclass(frozen=True)
 class MacroCycle:
     training_day: Macros
     rest_day: Macros
@@ -1530,6 +1676,30 @@ def macro_cycle(
             rationale="Macro-cycled day: protein held constant; carbs/fats adjusted.",
         )
 
+    # Re-clamp the rest day after macro rounding. The 25-kcal buffer above the
+    # floor is not always enough to absorb the rounding drift introduced by
+    # adjust_macros_for_calorie_change (rounds carbs/fats to the nearest 1 g,
+    # which can shift recomputed calories by ±5-9 kcal per macro). Empirically,
+    # at base=1600 kcal, male, 4-6 training days, the rest day dropped to
+    # 1496 kcal — 4 kcal below the 1500-kcal floor the function claims to
+    # enforce. See audit finding C5a (reopened).
+    if floor:
+        # Iteratively bump the low_delta target until the recomputed calories
+        # (after 1 g rounding) land at or above the floor. We cap the iteration
+        # count to avoid pathological loops; in practice 2-3 iterations suffice
+        # because each bump is 10 kcal.
+        for _ in range(10):
+            lo_macros_check = to_macros(lo_adj)
+            if lo_macros_check.calories >= floor:
+                break
+            # Increase the target calories by 10 kcal per iteration.
+            current_target = base.calories + low_delta
+            current_target += 10
+            low_delta = current_target - base.calories
+            lo_adj = adjust_macros_for_calorie_change(
+                base, low_delta, carb_ratio=0.67, round_to_g=1,
+            )
+
     weekly_avg = (to_macros(hi_adj).calories * td + to_macros(lo_adj).calories * rd) / 7
     rationale = "Optional adherence tool; no inherent advantage over consistent daily macros."
     if floor_hit:
@@ -1549,7 +1719,7 @@ def macro_cycle(
     )
 
 
-@dataclass
+@dataclass(frozen=True)
 class DailyLog:
     day: int
     calories: float
@@ -1557,7 +1727,7 @@ class DailyLog:
     complete: bool = True
 
 
-@dataclass
+@dataclass(frozen=True)
 class AdaptiveTDEEEstimate:
     formula_tdee: float
     observed_tdee: Optional[float]
@@ -1604,6 +1774,12 @@ def adaptive_tdee(
     else:
         median = cals[n_cals // 2]
     filtered = [log for log in complete if 0.5 * median <= log.calories <= 1.5 * median]
+    # Defensive sort: callers may pass logs in any order (e.g., chronologically
+    # appended, or queried without ORDER BY). All downstream slicing assumes
+    # ascending day order: filtered[:n] is the EARLY weight window, filtered[-n:]
+    # is the LATE window, and days = filtered[-1].day - filtered[0].day + 1.
+    # Without this sort, an unsorted input produced up to 43% TDEE error in tests.
+    filtered = sorted(filtered, key=lambda log: log.day)
     excluded = len(logs) - len(filtered)
     n = min(smoothing_days, len(filtered)//2)
     start_w = sum(log.weight_kg for log in filtered[:n]) / n
@@ -1631,7 +1807,7 @@ def adaptive_tdee(
     )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ReverseDietStep:
     week: int
     calories: float
@@ -1639,7 +1815,7 @@ class ReverseDietStep:
     instruction: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class ReverseDietProtocol:
     approach: str
     weekly_increase_kcal: int
@@ -1676,7 +1852,10 @@ def reverse_diet_protocol(
 # --------------------------------------------------------------------------- #
 # Body-fat self-estimate correction                                           #
 # --------------------------------------------------------------------------- #
-def correct_bf_estimate(bf_pct: float, is_self_estimate: bool = True) -> float:
+def correct_bf_estimate(
+    bf_pct: float, is_self_estimate: bool = True,
+    sex: Optional[Sex] = None,
+) -> float:
     """Correct body-fat self-estimates.
 
     Source: rippedbody.com/body-fat-guide/
@@ -1686,13 +1865,18 @@ def correct_bf_estimate(bf_pct: float, is_self_estimate: bool = True) -> float:
 
     The result is clamped to a physiologically plausible band so that
     pathological inputs (0% or 100%) do not produce meaningless outputs.
+
+    P2 #13 — clamp is now sex-aware when ``sex`` is provided: 50% for men,
+    55% for women (the highest values ever recorded in clinical literature
+    differ by sex). When ``sex`` is None, the conservative 55% ceiling is
+    used for both.
     """
     if not isinstance(bf_pct, (int, float)):
         raise TypeError("bf_pct must be a number")
     if bf_pct < 0:
         raise ValueError("bf_pct must be non-negative")
     corrected = bf_pct * 1.5 if is_self_estimate else bf_pct
-    # Physiological ceiling: ~50% for men, ~55% for women are about the
-    # highest values ever recorded in clinical literature.
-    corrected = max(2.0, min(corrected, 55.0))
+    # P2 #13 — sex-aware physiological ceiling.
+    ceiling = 50.0 if sex == Sex.MALE else 55.0
+    corrected = max(2.0, min(corrected, ceiling))
     return round(corrected, 1)

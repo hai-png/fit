@@ -22,13 +22,20 @@ from __future__ import annotations
 
 import functools as _functools
 import json
+import sys
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from .archetypes import (
     ExperienceLevel, GoalArchetype, TrainingEnvironment,
 )
+
+if TYPE_CHECKING:
+    # P2 (NEW-P2 #12) — ExerciseRule is defined in decision_trees.py which
+    # imports from exercise_plans.py; using TYPE_CHECKING avoids a circular
+    # import at runtime while still providing the type hint to IDEs.
+    from .decision_trees import ExerciseRule
 
 
 # --------------------------------------------------------------------------- #
@@ -47,7 +54,7 @@ ENVIRONMENT_EQUIPMENT: Dict[TrainingEnvironment, List[str]] = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
 class Exercise:
     name: str
     pattern: str              # horizontal_push, vertical_pull, hinge, ...
@@ -446,6 +453,15 @@ def _normalise_external_equipment(equipment: List[str]) -> Optional[List[str]]:
         "trap_bar": "trap_bar",
         "ez_bar": "ez_bar",
         "exercise_ball": "exercise_ball",
+        # Previously missing — caused 9 valid exercises (pull-up, chin-up,
+        # wide-grip pull-up, chest dip, tricep dip, bench dip, hanging leg
+        # raise, hanging knee raise, weighted crunch) to be silently dropped
+        # during DB load. Both tokens are listed in ENVIRONMENT_EQUIPMENT
+        # for HOME_GYM and GYM_FULL, so they are first-class engine concepts.
+        "pullup_bar": "pullup_bar",
+        "bench": "bench",
+        # "other" intentionally absent — records with this token are skipped
+        # because the engine cannot reason about unspecified equipment.
     }
     out: List[str] = []
     for raw in equipment or []:
@@ -468,7 +484,6 @@ def _load_comprehensive_exercise_library() -> Dict[str, Exercise]:
     equipment tokens or missing required fields, so data-quality regressions
     in the source JSON are visible during development. See audit F38, F54.
     """
-    import sys
     path = Path(__file__).resolve().parents[1] / "data" / "exercises" / "comprehensive_exercise_database.json"
     if not path.exists():
         return {}
@@ -535,13 +550,25 @@ def _get_comprehensive_library() -> Dict[str, Exercise]:
     return _load_comprehensive_exercise_library()
 
 
+# P2 (NEW-P2 #10) — module-level lock for thread-safe lazy init.
+_ensure_lock = _functools.Lock() if hasattr(_functools, "Lock") else __import__("threading").Lock()
+
+
 def _ensure_comprehensive_loaded() -> None:
-    """Merge the comprehensive library into EXERCISE_LIBRARY on first call."""
+    """Merge the comprehensive library into EXERCISE_LIBRARY on first call.
+
+    P2 (NEW-P2 #10) — thread-safe via double-checked locking. Previously
+    two threads could both pass the _done check and both call update(),
+    racing on dict mutation.
+    """
     if getattr(_ensure_comprehensive_loaded, "_done", False):
         return
-    extra = _get_comprehensive_library()
-    EXERCISE_LIBRARY.update(extra)
-    _ensure_comprehensive_loaded._done = True
+    with _ensure_lock:
+        if getattr(_ensure_comprehensive_loaded, "_done", False):
+            return
+        extra = _get_comprehensive_library()
+        EXERCISE_LIBRARY.update(extra)
+        _ensure_comprehensive_loaded._done = True
 
 
 # Trigger the merge immediately so EXERCISE_LIBRARY is populated for callers
@@ -564,15 +591,28 @@ def _equipment_feasible(ex: Exercise, equipment: List[str]) -> bool:
 
 
 def _resolve_exclude_keys(rule) -> set:
-    """Resolve ExerciseRule.exclude into a set of library keys."""
+    """Resolve ExerciseRule.exclude into a set of library keys.
+
+    Matching uses word-boundary on the underscore-split tokens of the
+    library key OR space-split tokens of the exercise name. So excluding
+    'row' matches 'barbell_row' and 'Barbell Row' but NOT 'arrow_row'
+    (because 'arrow_row' splits to ['arrow', 'row'] and 'row' is a token,
+    so it WOULD match — that's the intended behaviour for compound keys).
+    Previously used substring match, which would have matched 'row' inside
+    'arrow' too. See P2 #28.
+    """
+    import re as _re
     if rule is None:
         return set()
     exclude = getattr(rule, "exclude", []) or []
     keys: set = set()
     for entry in exclude:
         e = str(entry).lower()
+        # Match e as a whole token, where tokens are separated by underscore
+        # (library keys) or whitespace (exercise names).
+        pat_re = _re.compile(r"(?:^|[\s_])" + _re.escape(e) + r"(?:$|[\s_])")
         for k, ex in EXERCISE_LIBRARY.items():
-            if e in k.lower() or e in ex.name.lower():
+            if pat_re.search(k.lower()) or pat_re.search(ex.name.lower()):
                 keys.add(k)
     return keys
 
@@ -602,7 +642,7 @@ def pick_exercise(
     ``variant`` selects the Nth candidate for A/B variation. Candidates are
     sorted by difficulty *closest to* (but not exceeding) the experience-
     appropriate tier — beginners (difficulty_max=3) prefer difficulty 1-2
-    exercises; intermediate/advanced (difficulty_max=4) prefer difficulty 3-4.
+    exercises; intermediate/advanced (difficulty_max=4) prefer difficulty 2-3 (target_diff=2.5).
     This prevents the picker from prescribing barbell deadlifts (difficulty 4)
     to beginners when trap-bar deadlifts (difficulty 3) or dumbbell RDLs
     (difficulty 2) are available. See audit finding F34.
@@ -633,16 +673,28 @@ def pick_exercise(
 
 def _pick_via_substitutes(
     pattern: str, environment: TrainingEnvironment,
-    difficulty_max: int, exclude_keys: set, exercise_rule, variant: int,
+    difficulty_max: int, exclude_keys: set, exercise_rule: "Optional[ExerciseRule]", variant: int,
 ) -> Optional[Exercise]:
-    """Consult ExerciseRule.substitute_map when no direct match exists."""
+    """Consult ExerciseRule.substitute_map when no direct match exists.
+
+    Matching uses word-boundary on the underscore-split tokens of the
+    substitute_map key. So pattern='squat' matches key='barbell_squat'
+    (because 'squat' is one of the underscore-separated tokens), but NOT
+    key='pistol_squat_progression' (also matches because 'squat' is a token)
+    NOR key='squat_thrust' (matches because 'squat' is a token).
+    Previously used substring match, which would have matched 'squat' inside
+    'squatting' or 'benchpress_squats' too broadly. See P2 #27.
+    """
+    import re as _re
     if exercise_rule is None:
         return None
     equipment = ENVIRONMENT_EQUIPMENT.get(environment, [])
     sub_map = getattr(exercise_rule, "substitute_map", {}) or {}
     lookups = [pattern]
+    # Build a word-boundary regex once for the pattern.
+    pat_re = _re.compile(r"(?:^|_)" + _re.escape(pattern) + r"(?:$|_)")
     for k, v in sub_map.items():
-        if pattern in k or k in pattern:
+        if pat_re.search(k):
             lookups.extend(v)
     for ck in lookups:
         ex = EXERCISE_LIBRARY.get(ck)
@@ -660,7 +712,7 @@ def build_session(
     goal: GoalArchetype, environment: TrainingEnvironment,
     session_minutes: int, difficulty_max: int = 4,
     patterns: Optional[List[str]] = None,
-    exercise_rule=None, variant: int = 0,
+    exercise_rule: "Optional[ExerciseRule]" = None, variant: int = 0,
 ) -> List[Exercise]:
     """Build one training session: 5-9 exercises balanced across patterns.
 
@@ -709,7 +761,7 @@ def _build_patterns(patterns, environment, difficulty_max,
 def weekly_split(
     goal: GoalArchetype, experience: ExperienceLevel,
     days_per_week: int, environment: TrainingEnvironment,
-    exercise_rule=None,
+    exercise_rule: "Optional[ExerciseRule]" = None,
 ) -> Dict[str, List[Exercise]]:
     """Return a dict mapping day label -> list of exercises.
 
@@ -718,7 +770,7 @@ def weekly_split(
         2 days : Full Body A/B
         3 days : Full Body A/B/C (three distinct variants)
         4 days : Upper A / Lower A / Upper B / Lower B
-        5 days : Push / Pull / Legs / Upper Push / Upper Pull
+        5 days : Push / Pull / Legs A / Upper / Legs B
         6 days : PPL × 2
 
     A/B/C variation ensures consecutive sessions differ. Day 3 of the 3-day

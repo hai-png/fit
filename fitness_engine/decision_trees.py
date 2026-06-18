@@ -136,10 +136,15 @@ def weekly_volume(
             ExperienceLevel.ADVANCED: 16,
         }[experience]
     elif goal == GoalArchetype.FAT_LOSS:
+        # Cut volume reduced ~20-30% from muscle-gain maintenance values
+        # (10/14/18). Previously advanced=12 vs muscle-gain advanced=18 was
+        # a 33% reduction — outside the documented 20-30% range. Now
+        # beginner=8 (20%), intermediate=11 (~21%), advanced=13 (~28%).
+        # See P1 #7.
         base = {
             ExperienceLevel.BEGINNER: 8,
-            ExperienceLevel.INTERMEDIATE: 10,
-            ExperienceLevel.ADVANCED: 12,
+            ExperienceLevel.INTERMEDIATE: 11,
+            ExperienceLevel.ADVANCED: 13,
         }[experience]
     else:  # muscle_gain, recomp, general_health
         base = {
@@ -204,11 +209,18 @@ def intensity_scheme(
       >12 reps/set → 1-0 RIR
     """
     if goal == GoalArchetype.STRENGTH:
-        reps, rir = "3-6", 2.0
+        # RippedBody source specifies 4-6 reps for strength work (not 3-6).
+        # The 3-6 range was a typo that pushed below the cited 4-6 range.
+        # See P1 #8.
+        reps, rir = "4-6", 2.0
         acc_reps, acc_rir = "6-10", 2.0
     elif goal == GoalArchetype.FAT_LOSS:
         reps, rir = "6-12", 2.0
-        acc_reps, acc_rir = "10-15", 1.0
+        # P2 #32 — accessory RIR raised from 1.0 to 2.0 for intermediate/
+        # advanced cutters. 1.0 RIR on a calorie deficit is too aggressive
+        # (recovery is compromised; technical failure more likely at high
+        # reps). Beginners still get bumped to 3.0 via the floor below.
+        acc_reps, acc_rir = "10-15", 2.0
     elif goal == GoalArchetype.MUSCLE_GAIN:
         reps, rir = "6-12", 2.0
         acc_reps, acc_rir = "8-15", 1.0
@@ -382,6 +394,10 @@ def session_density(goal: GoalArchetype, session: SessionLength) -> SessionDensi
     Strength: 3-5 min rest (180-300s)
     Hypertrophy: 1.5-3 min rest (90-180s)
     Fat loss: 60-90s rest (circuit/density style)
+
+    EXPRESS_30 sessions are documented as supersets/circuits and may use
+    shorter rest than the standard range. We clamp to a minimum of 30s but
+    document the deviation in the description. See P1 #6.
     """
     base = {
         GoalArchetype.STRENGTH: (60, 180),
@@ -393,8 +409,17 @@ def session_density(goal: GoalArchetype, session: SessionLength) -> SessionDensi
     w, r = base
 
     if session == SessionLength.EXPRESS_30:
+        # EXPRESS_30 trades rest for density. We reduce rest by 30s but never
+        # below 30s. Previously this could drop below the documented range
+        # for STRENGTH (180s) and FAT_LOSS (60s) without flagging it.
+        original_r = r
         r = max(30, r - 30)
-        return SessionDensity(w, r, "supersets / circuits")
+        note = "supersets / circuits"
+        if original_r >= 180 and r < 180:
+            note += " (below standard 180-300s strength range; acceptable for express sessions)"
+        elif original_r >= 60 and r < 60:
+            note += " (below standard 60-90s fat-loss range; acceptable for express sessions)"
+        return SessionDensity(w, r, note)
     if session == SessionLength.SHORT_45:
         r = max(45, r - 15)
     if session == SessionLength.EXTENDED_90:
@@ -477,18 +502,27 @@ def cuisine_pick(prefs: List[str]) -> List[str]:
     All cuisine names are normalised to lowercase so that a user supplying
     ``"Mediterranean"`` matches the meal library's ``"mediterranean"`` tag.
     See second-audit finding (cuisine_pick case).
+
+    The "none" sentinel is now case-insensitive ("NONE", "None" all map to
+    the default), and the output is capped at 3 with an explicit note in the
+    docstring rather than a silent `[:3]` slice. See P1 #9.
     """
-    if not prefs or prefs == ["none"]:
+    if not prefs or [p.lower() for p in prefs] == ["none"]:
         return list(_DEFAULT_CUISINES)
     out = []
     for c in prefs:
-        if c and c != "none":
+        if c and c.lower() != "none":
             c_lower = c.lower()
             if c_lower not in out:
                 out.append(c_lower)
     if not out:
         out = list(_DEFAULT_CUISINES)
-    return out[:3]
+    # Cap at 3 cuisines for weekly rotation diversity without overwhelming
+    # the recipe pool. Caller can override by calling this function with
+    # fewer prefs. See P1 #9.
+    if len(out) > 3:
+        out = out[:3]
+    return out
 
 
 # --------------------------------------------------------------------------- #

@@ -310,8 +310,21 @@ class RemediatedCriticalIssues(unittest.TestCase):
 
     def test_comprehensive_exercise_database_is_wired_into_picker(self):
         from fitness_engine.exercise_plans import EXERCISE_LIBRARY
+        # Length check — ensures the comprehensive DB loaded at all.
         self.assertGreaterEqual(len(EXERCISE_LIBRARY), 115)
         self.assertTrue(any("comprehensive_db" in ex.tags for ex in EXERCISE_LIBRARY.values()))
+        # Specific-exercise presence — guards against silent equipment-token
+        # drops. Previously the mapping omitted 'pullup_bar' and 'bench',
+        # silently dropping 9 valid exercises (pull-up, chin-up, dips,
+        # hanging leg raises, etc.). The length check above still passed
+        # because the internal curated library compensated. See P0-4 fix.
+        for exercise_id in ("pull_up", "chin_up", "chest_dip", "tricep_dip",
+                            "hanging_leg_raise", "hanging_knee_raise"):
+            self.assertIn(
+                exercise_id, EXERCISE_LIBRARY,
+                msg=f"Expected exercise '{exercise_id}' missing from library — "
+                    f"check _normalise_external_equipment mapping."
+            )
 
     def test_recipe_pool_exhaustion_has_actionable_error(self):
         target = macros_for(2200, 80, 64, GoalArchetype.RECOMPOSITION,

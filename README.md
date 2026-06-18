@@ -84,10 +84,10 @@ fitness-engine --help
 ## Repository Structure
 
 ```text
-fitness_engine/          # Core engine (14 modules, ~7k LOC)
+fitness_engine/          # Core engine (15 modules, ~9k LOC)
 data/
-├── exercises/           # 115-exercise database
-└── recipes/             # 323-recipe unified external database
+├── exercises/           # 115-record exercise database (103 loaded after dedup)
+└── recipes/             # 140-recipe unified external database
 docs/
 ├── reference/           # Unified Fitness Reference Guide (37 sources)
 ├── protocols/           # Plan-building protocols

@@ -117,21 +117,51 @@ def _json_default(o):
 # Sub-commands                                                                #
 # --------------------------------------------------------------------------- #
 def cmd_profile(args) -> int:
-    with open(args.input) as fh:
-        data = json.load(fh)
-    profile = ClientProfile.from_dict(data)
-    rec = Recommender(profile).recommend()
+    # P1 #8, #18, #19 — wrap load/parse/recommend in try/except so known
+    # errors produce clean stderr messages with exit code 2 instead of
+    # uncaught stack traces. Also: explicit encoding='utf-8' for cross-
+    # platform consistency (Windows cp1252 default broke non-ASCII names),
+    # and isinstance(data, dict) check before data.get().
+    try:
+        with open(args.input, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        print(f"error: input file not found: {args.input}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as e:
+        print(f"error: invalid JSON in {args.input}: {e}", file=sys.stderr)
+        return 2
+    if not isinstance(data, dict):
+        print(f"error: top-level JSON must be an object, got {type(data).__name__}",
+              file=sys.stderr)
+        return 2
+    try:
+        profile = ClientProfile.from_dict(data)
+    except (ValueError, TypeError) as e:
+        print(f"error: invalid profile: {e}", file=sys.stderr)
+        return 2
+    try:
+        rec = Recommender(profile).recommend()
+    except Exception as e:
+        print(f"error: plan generation failed: {type(e).__name__}: {e}",
+              file=sys.stderr)
+        return 2
 
     if args.format == "json":
         out = _format_plan_json(rec)
     elif args.format == "html":
-        from examples.render_html import render
+        # Import from the installed package, not from `examples/` — the
+        # examples directory is not shipped in the wheel (pyproject.toml
+        # only includes `fitness_engine*`), so importing from it crashed
+        # with ModuleNotFoundError when the CLI was invoked from any
+        # directory other than the project root.
+        from .render_html import render
         out = render(rec, data.get("name", "Client"))
     else:
         out = _format_plan_text(rec)
 
     if args.out:
-        with open(args.out, "w") as fh:
+        with open(args.out, "w", encoding="utf-8") as fh:
             fh.write(out)
         print(f"Wrote {args.out}", file=sys.stderr)
     else:
@@ -238,7 +268,7 @@ def cmd_new(args) -> int:
         "plan_week": 1,
         "meal_plan_seed": None,
     }
-    with open(args.output, "w") as fh:
+    with open(args.output, "w", encoding="utf-8") as fh:
         json.dump(template, fh, indent=2)
     print(f"Scaffolded {args.output}")
     return 0
@@ -250,9 +280,43 @@ def _client_id_from_name(name: str) -> str:
 
 def cmd_review(args) -> int:
     """Review weight/intake logs and optional reverse-diet targets."""
-    with open(args.input) as fh:
-        data = json.load(fh)
-    logs = [DailyLog(**row) for row in data.get("logs", [])]
+    # P1 #9, #18 — wrap load/parse in try/except; explicit encoding='utf-8';
+    # validate row schema before DailyLog(**row) which previously raised
+    # TypeError on extra or missing keys with no actionable message.
+    try:
+        with open(args.input, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        print(f"error: input file not found: {args.input}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as e:
+        print(f"error: invalid JSON in {args.input}: {e}", file=sys.stderr)
+        return 2
+    if not isinstance(data, dict):
+        print(f"error: top-level JSON must be an object, got {type(data).__name__}",
+              file=sys.stderr)
+        return 2
+    # DailyLog fields — used to filter rows before DailyLog(**row).
+    daily_log_fields = {"day", "calories", "weight_kg", "complete"}
+    logs = []
+    for i, row in enumerate(data.get("logs", [])):
+        if not isinstance(row, dict):
+            print(f"error: logs[{i}] must be an object, got {type(row).__name__}",
+                  file=sys.stderr)
+            return 2
+        # Filter to known fields so unexpected keys don't crash.
+        filtered = {k: v for k, v in row.items() if k in daily_log_fields}
+        try:
+            logs.append(DailyLog(**filtered))
+        except TypeError as e:
+            print(f"error: logs[{i}] missing required field: {e}", file=sys.stderr)
+            return 2
+    # P1 #9 — empty input now produces a user-visible message instead of
+    # silently returning nulls.
+    if not logs and "formula_tdee" not in data and "reverse_diet" not in data:
+        print("error: input has no logs, no formula_tdee, and no reverse_diet — "
+              "nothing to review.", file=sys.stderr)
+        return 2
     result = {"adaptive_tdee": None, "reverse_diet": None}
     if "formula_tdee" in data:
         result["adaptive_tdee"] = dataclasses.asdict(
@@ -282,7 +346,7 @@ def cmd_review(args) -> int:
         ))
     out = json.dumps(result, indent=2)
     if args.out:
-        with open(args.out, "w") as fh:
+        with open(args.out, "w", encoding="utf-8") as fh:
             fh.write(out)
         print(f"Wrote {args.out}", file=sys.stderr)
     else:
@@ -297,9 +361,24 @@ def cmd_db_init(args) -> int:
 
 
 def cmd_store_client(args) -> int:
-    with open(args.profile) as fh:
-        data = json.load(fh)
-    profile = ClientProfile.from_dict(data)
+    try:
+        with open(args.profile, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        print(f"error: profile file not found: {args.profile}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as e:
+        print(f"error: invalid JSON in {args.profile}: {e}", file=sys.stderr)
+        return 2
+    if not isinstance(data, dict):
+        print(f"error: profile JSON must be an object, got {type(data).__name__}",
+              file=sys.stderr)
+        return 2
+    try:
+        profile = ClientProfile.from_dict(data)
+    except (ValueError, TypeError) as e:
+        print(f"error: invalid profile: {e}", file=sys.stderr)
+        return 2
     rec = Recommender(profile).recommend() if args.with_plan else None
     name = data.get("name", "Client")
     client_id = args.client_id or _client_id_from_name(name)

@@ -21,17 +21,28 @@ recommender can filter by compatibility.
 """
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 import random
+import re
+import sys
 from typing import Dict, List, Optional, Tuple
 
 from .archetypes import DietaryPreference
 
 
+# P2 #16 — named constants for portion-scale clamping. Previously these were
+# inline magic numbers in _scale_meal; the auditor's [0.35, 2.5] "advisable"
+# range is documented in meal_plan_auditor.py and sits inside this scaler's
+# allowed range.
+PORTION_SCALE_MIN = 0.25
+PORTION_SCALE_MAX = 3.0
+
+
 # --------------------------------------------------------------------------- #
 # Data model                                                                  #
 # --------------------------------------------------------------------------- #
-@dataclass
+@dataclass(frozen=True)
 class MealItem:
     name: str
     cuisine: str
@@ -47,7 +58,7 @@ class MealItem:
     portion_scale: float = 1.0      # multiplier applied to hit calorie targets
 
 
-@dataclass
+@dataclass(frozen=True)
 class MealPlan:
     name: str
     cuisine: str
@@ -634,20 +645,31 @@ def filter_compatible(diet: DietaryPreference,
     "egg" matches both "egg" and "eggs", and "nut" matches both "nut" and
     "nuts". See audit finding F46.
     """
-    import re
     acceptable = DIET_COMPATIBILITY.get(diet, set())
     # Pre-compile allergen patterns once for efficiency.
     allergen_patterns = []
     for a in allergens:
-        a_l = a.lower().strip()
+        # P2 #25 — collapse internal whitespace runs to single spaces before
+        # escaping so tabs/newlines in the raw allergen don't break the
+        # regex builder.
+        a_l = " ".join(a.lower().split())
         if not a_l:
             continue
         # Word-boundary match, case-insensitive, with optional plural 's'.
         # Allergens like "tree nuts" become r"\btree\s+nuts?\b".
+        # P2 #25 — escape then replace escaped whitespace with \s+ so any
+        # whitespace (space, tab, newline) in the source text matches.
         escaped = re.escape(a_l).replace(r"\ ", r"\s+")
-        # If the allergen ends in 's', the plural pattern is the same; if not,
-        # allow an optional trailing 's'.
-        if not a_l.endswith("s"):
+        # P2 #24 — if the allergen ends in 's' (e.g., "peas"), also strip
+        # the trailing 's' before building the pattern so "peas" matches
+        # both "pea" and "peas". Previously "peas" only matched "peas",
+        # not "pea" — asymmetric with the singular form.
+        if a_l.endswith("s") and len(a_l) > 1 and not a_l.endswith("ss"):
+            # Strip trailing 's' so the pattern allows both singular and plural.
+            stem = a_l[:-1]
+            escaped = re.escape(stem).replace(r"\ ", r"\s+")
+            pattern = r"\b" + escaped + r"s?\b"
+        elif not a_l.endswith("s"):
             pattern = r"\b" + escaped + r"s?\b"
         else:
             pattern = r"\b" + escaped + r"\b"
@@ -705,28 +727,28 @@ def _scale_meal(meal: MealItem, scale: float) -> MealItem:
     emitted to stderr so the user knows the plan's calorie accuracy is
     compromised. See audit finding F45.
     """
-    import copy
-    import sys
     raw_scale = scale
-    scale = round(max(0.25, min(scale, 3.0)), 2)  # keep within a sane band
-    if abs(scale - max(0.25, min(raw_scale, 3.0))) > 0.001 or raw_scale != scale:
-        # Only warn when the clamp actually changed the value.
-        if raw_scale < 0.25 or raw_scale > 3.0:
-            print(
-                f"[fitness_engine] warning: portion scale {raw_scale:.2f} for "
-                f"'{meal.name}' was clamped to {scale:.2f}. The day's calorie "
-                f"target may not be met exactly. Consider adding/removing a "
-                f"side item instead of scaling an entire recipe.",
-                file=sys.stderr,
-            )
-    m = copy.copy(meal)
-    m.calories = round(meal.calories * scale, 0)
-    m.protein_g = round(meal.protein_g * scale, 1)
-    m.carbs_g = round(meal.carbs_g * scale, 1)
-    m.fat_g = round(meal.fat_g * scale, 1)
-    m.fibre_g = round(meal.fibre_g * scale, 1)
-    m.portion_scale = scale
-    return m
+    # P2 #16 — extracted magic numbers to named constants (PORTION_SCALE_MIN/MAX).
+    scale = round(max(PORTION_SCALE_MIN, min(scale, PORTION_SCALE_MAX)), 2)
+    # P2 #21 — simplified convoluted clamp-warning condition.
+    if raw_scale < PORTION_SCALE_MIN or raw_scale > PORTION_SCALE_MAX:
+        print(
+            f"[fitness_engine] warning: portion scale {raw_scale:.2f} for "
+            f"'{meal.name}' was clamped to {scale:.2f}. The day's calorie "
+            f"target may not be met exactly. Consider adding/removing a "
+            f"side item instead of scaling an entire recipe.",
+            file=sys.stderr,
+        )
+    # P2 #16 — use dataclasses.replace to keep MealItem frozen=True.
+    return dataclasses.replace(
+        meal,
+        calories=round(meal.calories * scale, 0),
+        protein_g=round(meal.protein_g * scale, 1),
+        carbs_g=round(meal.carbs_g * scale, 1),
+        fat_g=round(meal.fat_g * scale, 1),
+        fibre_g=round(meal.fibre_g * scale, 1),
+        portion_scale=scale,
+    )
 
 
 def _slot_candidates(pool: List[MealItem], slot: str,
@@ -765,7 +787,19 @@ def assemble_day(
 
     The ``seed`` parameter makes plan generation reproducible — passing the
     same seed twice produces the same plan. See audit finding F44.
+
+    Raises:
+        ValueError: if target_calories is not positive, or meals_per_day
+            is outside [3, 5]. See P2 #22.
     """
+    if target_calories <= 0:
+        raise ValueError(
+            f"target_calories must be positive, got {target_calories}"
+        )
+    if not 3 <= meals_per_day <= 5:
+        raise ValueError(
+            f"meals_per_day must be between 3 and 5, got {meals_per_day}"
+        )
     rng = random.Random(seed) if seed is not None else random
     allergens = allergens or []
     pool = filter_compatible(diet, allergens)
@@ -781,7 +815,14 @@ def assemble_day(
         candidates = _slot_candidates(pool, slot, diet, allergens)
         if not candidates:
             continue
-        # Deterministic tiebreaker when seed provided, else keep random.
+        # Deterministic tiebreaker when seed provided (sorts by name as
+        # tiebreak so output is reproducible — rng is NOT used in this branch
+        # because rng.random() would make the sort non-deterministic across
+        # runs even with the same seed, since `rng = random.Random(seed)` is
+        # only deterministic for sequential calls, not for sort comparators
+        # that may be called many times per element). When seed is None,
+        # rng=random (the module) and rng.random() produces a true random
+        # tiebreak. See P2 #20.
         if seed is not None:
             candidates.sort(key=lambda m: (abs(m.calories - slot_target), m.name))
         else:
@@ -789,10 +830,9 @@ def assemble_day(
         chosen = candidates[0]
         # For 5-meal layout, stamp the disambiguated slot name on the meal
         # so the renderer can label them "Snack 1" and "Snack 2".
+        # Uses dataclasses.replace to keep MealItem frozen=True.
         if slot != chosen.slot:
-            import copy as _copy
-            chosen = _copy.copy(chosen)
-            chosen.slot = slot
+            chosen = dataclasses.replace(chosen, slot=slot)
         base_picks.append(chosen)
 
     # Uniform scale so the day total matches the target.
@@ -831,7 +871,14 @@ def assemble_week(
 
     The ``seed`` parameter makes plan generation reproducible — passing the
     same seed twice produces the same week. See audit finding F44.
+
+    Raises:
+        ValueError: if target_calories is not positive. See P2 #22.
     """
+    if target_calories <= 0:
+        raise ValueError(
+            f"target_calories must be positive, got {target_calories}"
+        )
     rng = random.Random(seed) if seed is not None else random
     allergens = allergens or []
     out: List[MealPlan] = []
@@ -878,10 +925,9 @@ def assemble_week(
 
             if chosen:
                 # Stamp disambiguated slot name on snack variants.
+                # Uses dataclasses.replace to keep MealItem frozen=True.
                 if slot != chosen.slot:
-                    import copy as _copy
-                    chosen = _copy.copy(chosen)
-                    chosen.slot = slot
+                    chosen = dataclasses.replace(chosen, slot=slot)
                 base_picks.append(chosen)
 
         # Portion-scale the day to the target.

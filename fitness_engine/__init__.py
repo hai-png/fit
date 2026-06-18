@@ -47,6 +47,7 @@ from .adjustments import (
     cut_adjustment_checklist, bulk_adjustment_checklist,
     training_plateau_checklist, progress_tracking_guide,
     metabolic_adaptation_info, initial_assessment_guidance,
+    cut_bulk_boundary,
 )
 from .decision_trees import (
     IntensityScheme, Periodisation, ProgressionRule, SessionDensity,
@@ -65,7 +66,7 @@ from .exercise_plans import (
     ENVIRONMENT_EQUIPMENT,
 )
 from .questionnaires import (
-    DIETARY, FITNESS_HISTORY, GOALS, HEALTH_SCREEN, FULL_INTAKE,
+    DIETARY, FITNESS_HISTORY, GOALS, HEALTH_SCREEN, FULL_INTAKE, CORE_DEMOGRAPHICS,
     intake_report, IntakeReport,
 )
 from .protocols import (
@@ -117,6 +118,7 @@ __all__ = [
     "cut_adjustment_checklist", "bulk_adjustment_checklist",
     "training_plateau_checklist", "progress_tracking_guide",
     "metabolic_adaptation_info", "initial_assessment_guidance",
+    "cut_bulk_boundary",
     # decision trees
     "IntensityScheme", "Periodisation", "ProgressionRule", "SessionDensity",
     "TrainingSplit", "WeeklyVolume", "exercise_selection", "intensity_scheme",
@@ -132,6 +134,7 @@ __all__ = [
     "ENVIRONMENT_EQUIPMENT",
     # questionnaires
     "DIETARY", "FITNESS_HISTORY", "GOALS", "HEALTH_SCREEN", "FULL_INTAKE",
+    "CORE_DEMOGRAPHICS",
     "intake_report", "IntakeReport",
     # protocols
     "ExercisePlanProtocol", "MealPlanProtocol", "CompleteProfileProtocol",

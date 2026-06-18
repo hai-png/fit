@@ -9,7 +9,7 @@ from .meal_plans import DIET_COMPATIBILITY, MealItem
 from .seven_day_meal_planner import SevenDayMealPlan
 
 
-@dataclass
+@dataclass(frozen=True)
 class MealPlanAudit:
     score: int
     grade: str
@@ -92,7 +92,7 @@ def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.1
             calorie_failures.append((day.name, quality.calorie_error_pct))
         if quality.protein_error_g < -(plan.target_macros.protein_g * protein_tolerance):
             protein_failures.append((day.name, quality.protein_error_g))
-        if quality.fibre_g and quality.fibre_g < plan.micronutrients.fibre_g * 0.6:
+        if quality.fibre_g < plan.micronutrients.fibre_g * 0.6:
             fibre_low.append((day.name, quality.fibre_g))
     if calorie_failures:
         issues.append(f"Calorie misses beyond ±5%: {calorie_failures}.")
@@ -104,9 +104,22 @@ def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.1
         issues.append(f"Known fibre is low on some days: {fibre_low}. Note many imported recipes lack fibre data.")
         recs.append("Add explicit fruit/vegetable/legume sides on low-fibre days and improve recipe fiber metadata.")
         score -= 5
+    # Separate data-quality flag: a day with fibre_g == 0 almost certainly
+    # means the imported recipe lacks fibre metadata rather than the meal
+    # genuinely containing no fibre. Previously, the truthy guard
+    # `if quality.fibre_g and ...` silently skipped these days, masking both
+    # the data gap and the legitimate low-fibre warning.
+    zero_fibre_days = [(d.name, q.fibre_g) for d, q in zip(plan.days, plan.quality_by_day) if q.fibre_g == 0]
+    if zero_fibre_days:
+        issues.append(
+            f"Days with zero fibre data (likely missing recipe metadata, not a true zero-fibre meal): "
+            f"{zero_fibre_days}."
+        )
+        recs.append("Backfill fibre_g for imported recipes; until then, treat these days as low-confidence.")
+        score -= 3
     checks["calories"] = "pass" if not calorie_failures else "fail"
     checks["protein"] = "pass" if not protein_failures else "warn"
-    checks["fibre"] = "pass" if not fibre_low else "warn"
+    checks["fibre"] = "pass" if not fibre_low and not zero_fibre_days else "warn"
 
     # Diet compatibility.
     acceptable = DIET_COMPATIBILITY.get(plan.diet, {plan.diet.value})
@@ -151,12 +164,65 @@ def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.1
     checks["macro_confidence"] = "pass" if not missing_conf else "fail"
 
     # Practicality: extreme portion scaling.
+    # Threshold aligned with meal_plans._scale_meal ([0.25, 3.0]) and
+    # seven_day_meal_planner._scale ([0.20, 5.0]) — the auditor's [0.35, 2.5]
+    # is now documented as the "advisable" range (inside both scalers' allowed
+    # ranges), with anything outside flagged as warn. See P1 #10.
     extreme = [(d.name, m.name, m.portion_scale) for d in plan.days for m in d.meals if m.portion_scale < 0.35 or m.portion_scale > 2.5]
     if extreme:
         issues.append(f"Extreme portion scaling found: {extreme[:6]}.")
         recs.append("Prefer recipes closer to slot targets or add smaller side items instead of scaling entire recipes.")
         score -= 8
     checks["portion_scaling"] = "pass" if not extreme else "warn"
+
+    # Food-group coverage check (P1 #11): every day should include at least
+    # one protein source, one vegetable, and one fruit OR whole grain. This
+    # is a basic dietary-quality signal that was missing entirely.
+    # Detection is heuristic — we look at ingredient names because the
+    # recipe DB does not have a "food_group" field.
+    _PROTEIN_HINTS = ("chicken", "beef", "pork", "turkey", "fish", "salmon",
+                      "tuna", "egg", "tofu", "tempeh", "beans", "lentils",
+                      "chickpea", "yogurt", "yoghurt", "cottage", "whey",
+                      "shrimp", "prawn", "duck", "lamb", "veal", "bacon",
+                      "sausage", "ham", "protein")
+    _VEG_HINTS = ("spinach", "broccoli", "kale", "lettuce", "tomato",
+                  "carrot", "pepper", "onion", "garlic", "cucumber",
+                  "zucchini", "courgette", "eggplant", "aubergine",
+                  "mushroom", "cabbage", "cauliflower", "asparagus",
+                  "green bean", "snap pea", "celery")
+    _FRUIT_OR_GRAIN_HINTS = ("apple", "banana", "berry", "berries", "orange",
+                              "rice", "oat", "quinoa", "bread", "pasta",
+                              "wheat", "barley", "couscous", "tortilla",
+                              "potato", "sweet potato", "corn", "fruit")
+    food_group_failures = []
+    for day in plan.days:
+        ing_text = " ".join(
+            ing.lower() for m in day.meals for ing in m.ingredients
+        )
+        has_protein = any(h in ing_text for h in _PROTEIN_HINTS)
+        has_veg = any(h in ing_text for h in _VEG_HINTS)
+        has_fruit_or_grain = any(h in ing_text for h in _FRUIT_OR_GRAIN_HINTS)
+        if not (has_protein and has_veg and has_fruit_or_grain):
+            missing = []
+            if not has_protein:
+                missing.append("protein")
+            if not has_veg:
+                missing.append("vegetable")
+            if not has_fruit_or_grain:
+                missing.append("fruit/whole-grain")
+            food_group_failures.append((day.name, missing))
+    if food_group_failures:
+        issues.append(
+            f"Days missing basic food groups (protein/veg/fruit-or-grain): "
+            f"{food_group_failures[:5]}."
+        )
+        recs.append(
+            "Add explicit vegetables, fruit, or whole grains to days flagged "
+            "above. The check is heuristic (ingredient-name substring) and "
+            "may miss recipes that use compound ingredient names."
+        )
+        score -= min(10, len(food_group_failures) * 2)
+    checks["food_groups"] = "pass" if not food_group_failures else "warn"
 
     # Slot sanity: flag desserts/snacks in main-meal slots using word-boundary
     # regex matching. Only flag if the meal is also low-calorie (<300 kcal) —
@@ -188,7 +254,11 @@ def audit_7_day_meal_plan(plan: SevenDayMealPlan, protein_tolerance: float = 0.1
     # 40+ range rather than the 50s. See audit finding F57.
     # A proper refactor would track per-category deductions and cap each
     # individually; this conservative floor is a first step.
-    score = max(40, min(100, score))
+    # Floor lowered from 40 to 20 (P1 #12) — a synthetic plan with 6/7
+    # calorie failures + 2/7 protein failures + dessert-in-dinner +
+    # zero-fibre day scored 44 (above the old 40 floor), which is too
+    # lenient. Floor of 20 lets catastrophic plans score F (≤20).
+    score = max(20, min(100, score))
     grade = "A" if score >= 90 else "B" if score >= 80 else "C" if score >= 70 else "D" if score >= 60 else "F"
     if not recs:
         recs.append("Plan is usable; continue improving fibre metadata and rotate recipe sources for adherence.")

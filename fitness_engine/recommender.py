@@ -37,6 +37,9 @@ from .seven_day_meal_planner import SevenDayMealPlan, assemble_7_day_meal_plan
 from .exercise_plans import weekly_split
 from .questionnaires import IntakeReport, intake_report
 from .protocols import CompleteProfileProtocol, build_complete_profile_protocol
+# P2 #21 — tightened type hint for meal_plan_audit (was Optional[Any]).
+# Imported here at module top so the type annotation resolves at import time.
+from .meal_plan_auditor import MealPlanAudit, audit_7_day_meal_plan
 
 
 # --------------------------------------------------------------------------- #
@@ -108,6 +111,11 @@ class ClientProfile:
     working_weights_kg: Dict[str, float] = field(default_factory=dict)
     plan_week: int = 1
     meal_plan_seed: Optional[int] = None
+    # P1 #13 — diet_history_confused gates the PURGATORY archetype in
+    # classify_trainee. Previously this field was missing from ClientProfile,
+    # so PURGATORY was unreachable and the 9-category taxonomy was
+    # effectively 8. Now exposed as an explicit field with default False.
+    diet_history_confused: bool = False
 
     def __post_init__(self) -> None:
         """Validate and normalise profile inputs at the API boundary.
@@ -117,7 +125,38 @@ class ClientProfile:
         silent clamps (for example, a 7-day lifting request previously returned
         a 6-day plan).  String enum values are accepted for ergonomic direct
         construction; they are normalised to enum instances here.
+
+        P1 #7 — type checks for age/height/weight now produce actionable
+        ValueErrors with the offending value, instead of TypeError from
+        the comparison operator (e.g., age="thirty" used to crash with
+        `'<=' not supported between instances of 'int' and 'str'`).
         """
+        # P1 #7 — coerce/validate numeric types BEFORE comparison so a
+        # string-typed value from a malformed JSON produces an actionable
+        # error rather than a cryptic TypeError.
+        for fld in ("age", "height_cm", "weight_kg", "resting_hr",
+                    "meals_per_day", "days_per_week", "timeline_weeks",
+                    "plan_week"):
+            v = getattr(self, fld)
+            if isinstance(v, str):
+                try:
+                    coerced = int(v) if fld in ("age", "resting_hr",
+                                                "meals_per_day", "days_per_week",
+                                                "timeline_weeks", "plan_week") else float(v)
+                    setattr(self, fld, coerced)
+                except ValueError:
+                    raise ValueError(
+                        f"{fld} must be a number, got {type(v).__name__}: {v!r}"
+                    )
+            elif isinstance(v, bool) or v is None:
+                raise ValueError(
+                    f"{fld} must be a number, got {type(v).__name__}: {v!r}"
+                )
+            elif not isinstance(v, (int, float)):
+                raise ValueError(
+                    f"{fld} must be a number, got {type(v).__name__}: {v!r}"
+                )
+
         self.sex = Sex(self.sex)
         self.activity = ActivityLevel(self.activity)
         self.dietary_preference = DietaryPreference(self.dietary_preference)
@@ -127,11 +166,18 @@ class ClientProfile:
         self.primary_goal = GoalArchetype(self.primary_goal)
 
         if not 13 <= self.age <= 100:
-            raise ValueError("age must be between 13 and 100")
+            raise ValueError(
+                f"age must be between 13 and 100, got {self.age!r} "
+                f"(type {type(self.age).__name__})"
+            )
         if not 50 <= self.height_cm <= 250:
-            raise ValueError("height_cm must be between 50 and 250")
+            raise ValueError(
+                f"height_cm must be between 50 and 250, got {self.height_cm!r}"
+            )
         if not 20 <= self.weight_kg <= 350:
-            raise ValueError("weight_kg must be between 20 and 350")
+            raise ValueError(
+                f"weight_kg must be between 20 and 350, got {self.weight_kg!r}"
+            )
         if self.body_fat_pct is not None and not 2 <= self.body_fat_pct <= 70:
             raise ValueError("body_fat_pct must be between 2 and 70 when provided")
         for name in ("waist_cm", "neck_cm", "hip_cm", "wrist_cm"):
@@ -176,16 +222,20 @@ class ClientProfile:
         # motivation values. If the user supplied one of them, accept it; if
         # they supplied free text, accept it but emit no warning (the field
         # is documented as accepting either). See audit finding F67.
+        # P1 #17 — the outer `if self.motivation` guard was falsy for empty
+        # string '', so '' was NOT normalized to 'appearance' (only
+        # whitespace like '   ' was). Now we check emptiness explicitly.
         _VALID_MOTIVATIONS = {
             "health_event", "appearance", "performance", "longevity",
             "mental_health",
         }
-        if self.motivation and self.motivation not in _VALID_MOTIVATIONS:
-            # Free-text motivation is allowed but we normalize empty/whitespace
-            # to the default ("appearance") so downstream consumers can rely
-            # on a non-empty string.
-            if not self.motivation.strip():
-                self.motivation = "appearance"
+        if not self.motivation or not self.motivation.strip():
+            # Empty string, whitespace, or None all normalize to default.
+            self.motivation = "appearance"
+        elif self.motivation not in _VALID_MOTIVATIONS:
+            # Free-text motivation is allowed but not normalized — we keep
+            # the user's text as-is for downstream display.
+            pass
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the profile to a JSON-safe dict.
@@ -201,6 +251,20 @@ class ClientProfile:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "ClientProfile":
+        # P1 #6 — previously missing required fields raised bare KeyError
+        # with no list of required fields or provided keys. Now we collect
+        # all missing fields and raise a single actionable ValueError.
+        if not isinstance(d, dict):
+            raise TypeError(
+                f"from_dict expects a dict, got {type(d).__name__}: {d!r}"
+            )
+        required = ["age", "sex", "height_cm", "weight_kg"]
+        missing = [k for k in required if k not in d]
+        if missing:
+            raise ValueError(
+                f"ClientProfile.from_dict: missing required field(s) {missing}. "
+                f"Provided keys: {sorted(d.keys())}"
+            )
         return cls(
             age=d["age"],
             sex=Sex(d["sex"]),
@@ -232,6 +296,7 @@ class ClientProfile:
             working_weights_kg=d.get("working_weights_kg", {}),
             plan_week=d.get("plan_week", 1),
             meal_plan_seed=d.get("meal_plan_seed"),
+            diet_history_confused=d.get("diet_history_confused", False),
         )
 
 
@@ -287,7 +352,7 @@ class PlanRecommendation:
     # audit_7_day_meal_plan on the weekly meal plan so the score is visible
     # in every generated plan, not only when the user explicitly invokes
     # the auditor. See audit finding F58.
-    meal_plan_audit: Optional[Any] = None
+    meal_plan_audit: Optional[MealPlanAudit] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -327,6 +392,8 @@ class Recommender:
         if self.p.meal_plan_seed is not None:
             # XOR the user-supplied seed with plan_week so each week is
             # different but still deterministic.
+            # P2 #26 — 2654435761 is Knuth's multiplicative hash constant
+            # (TAOCP Vol. 2, §6.4, "The Art of Computer Programming").
             return self.p.meal_plan_seed ^ (self.p.plan_week * 2654435761)
         seed_payload = {
             "age": self.p.age,
@@ -340,14 +407,17 @@ class Recommender:
         digest = hashlib.sha1(json.dumps(seed_payload, sort_keys=True).encode()).hexdigest()
         return int(digest[:8], 16)
 
-    def _load_guidance(self, ex, rep_range: str) -> Optional[Dict[str, Any]]:
+    def _load_guidance(self, ex, rep_range: str, reps: int = 5) -> Optional[Dict[str, Any]]:
         """Return simple load guidance from optional client working weights.
 
         ``working_weights_kg`` accepts keys such as ``squat``, ``bench_press``,
         ``deadlift``, ``overhead_press``, ``row``, ``pullup``, or an exercise-
-        name fragment. We treat the provided load as a recent hard set of ~5
-        reps and estimate 1RM from it, then prescribe a conservative working
-        range for the plan's reps/RIR.
+        name fragment. We treat the provided load as a recent hard set of
+        ``reps`` reps (default 5) and estimate 1RM from it, then prescribe a
+        conservative working range for the plan's reps/RIR.
+
+        P2 #23 — added ``reps`` parameter (was hard-coded to 5). Callers can
+        now pass the actual rep count of the working-weight set.
 
         Matching is performed **only** on the exercise's ``name`` field — not
         on its ``pattern`` or ``primary_muscle``. Pattern-name matching (e.g.
@@ -388,8 +458,14 @@ class Recommender:
         if matched_key is None:
             return None
 
-        est = one_rep_max(working_load, 5)
-        pct = 0.72 if "12" in rep_range or "15" in rep_range else 0.80
+        # P2 #23 — use the caller-provided reps (default 5) for 1RM estimation.
+        est = one_rep_max(working_load, reps)
+        # P2 #24 — parse the rep range to its midpoint and look up the
+        # percent-of-1RM from a structured table. Previously used fragile
+        # substring matching ("12" in rep_range or "15" in rep_range) which
+        # also matched "12" inside "12-15" ranges incorrectly for strength
+        # work (3-6 reps), giving pct=0.80 instead of the proper 0.85-0.90.
+        pct = self._pct_for_rep_range(rep_range)
         suggested = round(est.average_1rm * pct / 2.5) * 2.5
         return {
             "source_lift": matched_key,
@@ -397,11 +473,40 @@ class Recommender:
             "estimated_1rm_kg": est.average_1rm,
             "suggested_working_weight_kg": suggested,
             "rationale": (
-                f"Estimated from {working_load:g} kg × 5 (assumed recent hard set "
-                f"of 5 reps on {matched_key}); start conservatively for "
+                f"Estimated from {working_load:g} kg × {reps} (assumed recent hard set "
+                f"of {reps} reps on {matched_key}); start conservatively for "
                 f"{rep_range} @ target RIR."
             ),
         }
+
+    @staticmethod
+    def _pct_for_rep_range(rep_range: str) -> float:
+        """Return the percent-of-1RM working weight for a rep-range string.
+
+        P2 #24 — replaces the previous fragile substring match
+        (``0.72 if "12" in rep_range or "15" in rep_range else 0.80``)
+        with a structured lookup based on the midpoint of the rep range.
+        Sources: RippedBody / standard NSCA percent-of-1RM table.
+        """
+        # Parse "X-Y" → midpoint, e.g. "4-6" → 5, "10-15" → 12.5.
+        try:
+            parts = rep_range.split("-")
+            if len(parts) == 2:
+                mid = (int(parts[0]) + int(parts[1])) / 2
+            else:
+                mid = int(parts[0])
+        except (ValueError, IndexError):
+            mid = 8  # sensible default
+        # NSCA-style percent-of-1RM table (approximate, conservative).
+        if mid <= 3:
+            return 0.90
+        if mid <= 6:
+            return 0.85
+        if mid <= 9:
+            return 0.78
+        if mid <= 12:
+            return 0.72
+        return 0.70  # 13+ reps
 
     @staticmethod
     def _reconcile_volume(targets: Dict[str, int], schedule: Dict[str, List[dict]]) -> Dict[str, Any]:
@@ -429,7 +534,9 @@ class Recommender:
         actual = {muscle: 0.0 for muscle in targets}
         for exercises in schedule.values():
             for ex in exercises:
-                sets = float(ex.get("set_count", 3))
+                # P2 #27 — previously defaulted to 3 if set_count missing;
+                # now let KeyError surface so schema bugs are visible.
+                sets = float(ex["set_count"])
                 primary = ex.get("primary_muscle")
                 alias = _alias(primary) if primary else None
                 if alias:
@@ -453,12 +560,23 @@ class Recommender:
         p = self.p
 
         # 1. Body composition (with visual BF fallback)
-        bc = body_composition(
-            p.weight_kg, p.height_cm, p.age, p.sex,
-            bf_pct=p.body_fat_pct,
-            waist_cm=p.waist_cm, neck_cm=p.neck_cm, hip_cm=p.hip_cm,
-            visual_bf_label=p.visual_bf_label,
-        )
+        # Female users supplying waist+neck but omitting hip_cm hit a
+        # ValueError in the Navy BF branch (hip is required for the female
+        # Navy equation). Fall through to Deurenberg/visual fallbacks in
+        # that case rather than crashing the entire recommend() call.
+        try:
+            bc = body_composition(
+                p.weight_kg, p.height_cm, p.age, p.sex,
+                bf_pct=p.body_fat_pct,
+                waist_cm=p.waist_cm, neck_cm=p.neck_cm, hip_cm=p.hip_cm,
+                visual_bf_label=p.visual_bf_label,
+            )
+        except ValueError:
+            bc = body_composition(
+                p.weight_kg, p.height_cm, p.age, p.sex,
+                bf_pct=p.body_fat_pct,
+                visual_bf_label=p.visual_bf_label,
+            )
 
         # 1b. Anthropometric health indices (WHtR, WHR, ABSI, IBW)
         anthro = anthropometric_indices(
@@ -473,8 +591,10 @@ class Recommender:
         )
 
         # 3. Trainee category (RippedBody 9 categories)
+        # P1 #13 — pass diet_history_confused so PURGATORY is reachable.
         trainee = classify_trainee(
             bc.body_fat_pct or 20, p.experience, p.sex, bc.bmi,
+            diet_history_confused=p.diet_history_confused,
         )
 
         # 4. Energy expenditure
@@ -577,11 +697,19 @@ class Recommender:
         # ``plan_week`` changes, the deterministic meal-plan seed changes, so
         # both ``weekly_meal_plan`` and ``meal_plan`` change silently. Callers
         # who cache ``meal_plan`` across weeks must re-fetch. See audit F60.
+        # P1 #12 — assert weekly plan has exactly 7 days. Previously a
+        # short week would propagate silently and day_plan = week_plan.days[0]
+        # would crash with IndexError if days was empty. Now we surface the
+        # failure as a clear assertion.
+        assert len(week_plan.days) == 7, (
+            f"assemble_7_day_meal_plan returned {len(week_plan.days)} days, "
+            f"expected 7. This indicates a recipe-pool or filter issue."
+        )
         day_plan = week_plan.days[0]
 
         # 10b. Auto-audit the weekly meal plan so the score is visible in
         # every generated plan. See audit finding F58.
-        from .meal_plan_auditor import audit_7_day_meal_plan
+        # P2 #22 — import moved to module top (no circular import).
         meal_audit = audit_7_day_meal_plan(week_plan)
 
         # 11. Supplements
@@ -594,6 +722,7 @@ class Recommender:
             calorie_target=ee.calorie_target,
             trainee_summary=trainee.summary,
             trainee_recommendations=trainee.recommendations,
+            sex=p.sex,
         )
 
         # 13. Protocol blueprints for this profile
@@ -613,6 +742,17 @@ class Recommender:
         # 15. Warnings and notes
         warnings = list(ir.warnings)
         notes = list(ir.notes)
+        # Surface low-scoring meal-plan audits as user-visible warnings so the
+        # plan recipient knows the meal plan may need adjustment. Previously
+        # the audit result was stored on the recommendation object but never
+        # surfaced, so a plan scoring 65/100 (grade D) would silently ship
+        # with zero audit-related warnings.
+        if meal_audit and meal_audit.score < 80:
+            top_issues = meal_audit.issues[:3] if meal_audit.issues else []
+            warnings.append(
+                f"Meal plan audit score {meal_audit.score}/100 (grade {meal_audit.grade}). "
+                + (f"Top issues: {' | '.join(top_issues)}" if top_issues else "")
+            )
         active_medical_flags = sorted(k for k, v in p.medical_flags.items() if v)
         if active_medical_flags:
             warnings.append(
@@ -626,11 +766,19 @@ class Recommender:
                 key=lambda kv: abs(kv[1]),
                 reverse=True,
             )[:3]
-            notes.append(
+            # P1 #15 — escalate to WARNING when any muscle group's set diff
+            # exceeds 3. A -14 set deficit (78% underdose) is clinically
+            # significant; previously it was buried as a NOTE.
+            severe_diffs = [(m, d) for m, d in largest if abs(d) > 3]
+            msg = (
                 "Weekly volume audit: "
                 + ", ".join(f"{muscle} {diff:+d} sets" for muscle, diff in largest)
                 + ". Adjust accessories if recovery or progress indicates a mismatch."
             )
+            if severe_diffs:
+                warnings.append(msg)
+            else:
+                notes.append(msg)
         tree_strategy, tree_reason = recommend_phase_strategy(
             bc.body_fat_pct or 20, p.experience, p.sex, bc.bmi, p.primary_goal,
         )
@@ -707,7 +855,15 @@ class Recommender:
 
     def _cardio_prescription(self, goal: GoalArchetype,
                              days_per_week: int) -> Dict[str, str]:
-        """Cardio prescription (RippedBody: use sparingly, if at all)."""
+        """Cardio prescription (RippedBody: use sparingly, if at all).
+
+        P2 #25 — returns a ``Dict[str, str]`` with mixed-typed values
+        (numeric strings, ranges, prose). A proper ``CardioPrescription``
+        dataclass with typed fields would be cleaner, but the dict is
+        consumed by renderers that expect string values; changing the
+        return type would require coordinated updates across render_html
+        and the CLI text formatter. Left as a documented follow-up.
+        """
         # RippedBody stance: cardio is supplementary, not the main driver.
         # Diet drives the deficit; training drives muscle.
         if goal == GoalArchetype.FAT_LOSS:

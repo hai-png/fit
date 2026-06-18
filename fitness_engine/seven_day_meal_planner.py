@@ -25,7 +25,7 @@ from .calculators import Macros, MicronutrientTargets, micronutrient_targets
 from .meal_plans import DIET_COMPATIBILITY, MEAL_LIBRARY, MealItem, MealPlan
 
 
-@dataclass
+@dataclass(frozen=True)
 class DayPlanQuality:
     calorie_error_pct: float
     protein_error_g: float
@@ -34,7 +34,7 @@ class DayPlanQuality:
     notes: List[str] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=True)
 class MealAlternativeSet:
     day: str
     meal_slot: str
@@ -42,7 +42,7 @@ class MealAlternativeSet:
     alternatives: List[MealItem]
 
 
-@dataclass
+@dataclass(frozen=True)
 class SevenDayMealPlan:
     name: str
     diet: DietaryPreference
@@ -66,8 +66,45 @@ def _compatible_tags(diet: DietaryPreference) -> set:
 
 
 def _allergen_ok(meal: MealItem, allergens: Sequence[str]) -> bool:
-    text = " ".join([meal.name, *meal.tags, *meal.ingredients]).lower()
-    return not any(a.lower() in text for a in allergens)
+    """Return True if the meal contains none of the listed allergens.
+
+    Uses word-boundary regex matching consistent with
+    :func:`fitness_engine.meal_plans.filter_compatible` so the same user
+    gets the same filtering regardless of which planner path is taken.
+    Previously this used substring matching, which produced false positives
+    like "pea" matching "peanut", "corn" matching "cornish", and "rice"
+    matching "price". See audit finding (allergen-consistency).
+
+    P2 #24 — plural handling is now symmetric: allergen "peas" (ends in 's')
+    matches both "pea" and "peas" in ingredients. Previously only the
+    singular form got the optional plural 's?' suffix.
+    """
+    import re
+    if not allergens:
+        return True
+    # Inspect name + ingredients (NOT tags — tags are categorical and a
+    # category like "external" should not match an allergen of "external").
+    text = " ".join([meal.name, *meal.ingredients]).lower()
+    for a in allergens:
+        # P2 #25 — collapse internal whitespace.
+        a_l = " ".join(a.lower().split())
+        if not a_l:
+            continue
+        escaped = re.escape(a_l).replace(r"\ ", r"\s+")
+        # P2 #24 — if allergen ends in 's' (and isn't 'ss'), strip the
+        # trailing 's' and add optional 's?' so plural allergens match
+        # singular ingredients.
+        if a_l.endswith("s") and len(a_l) > 1 and not a_l.endswith("ss"):
+            stem = a_l[:-1]
+            escaped = re.escape(stem).replace(r"\ ", r"\s+")
+            pattern = r"\b" + escaped + r"s?\b"
+        elif not a_l.endswith("s"):
+            pattern = r"\b" + escaped + r"s?\b"
+        else:
+            pattern = r"\b" + escaped + r"\b"
+        if re.search(pattern, text):
+            return False
+    return True
 
 
 def _diet_ok(meal: MealItem, diet: DietaryPreference) -> bool:
@@ -218,7 +255,10 @@ def recipe_pool(
 _SLOT_WEIGHTS: Dict[int, List[Tuple[str, float]]] = {
     3: [("breakfast", 0.30), ("lunch", 0.35), ("dinner", 0.35)],
     4: [("breakfast", 0.25), ("lunch", 0.30), ("snack", 0.15), ("dinner", 0.30)],
-    5: [("breakfast", 0.22), ("snack", 0.12), ("lunch", 0.28), ("snack", 0.12), ("dinner", 0.26)],
+    # Use snack_1 / snack_2 (not "snack" x2) so the assembler can
+    # disambiguate the two snack slots when building the plan. Matches
+    # meal_plans._SLOT_WEIGHTS (F47). See P2 #18.
+    5: [("breakfast", 0.22), ("snack_1", 0.12), ("lunch", 0.28), ("snack_2", 0.12), ("dinner", 0.26)],
 }
 
 
@@ -227,16 +267,18 @@ def _slot_layout(meals_per_day: int) -> List[Tuple[str, float]]:
 
 
 def _scale(meal: MealItem, scale: float) -> MealItem:
-    import copy
-    m = copy.copy(meal)
+    # P2 #16 — use dataclasses.replace to keep MealItem frozen=True.
+    import dataclasses as _dc
     scale = round(max(0.20, min(5.0, scale)), 2)
-    m.calories = round(meal.calories * scale, 0)
-    m.protein_g = round(meal.protein_g * scale, 1)
-    m.carbs_g = round(meal.carbs_g * scale, 1)
-    m.fat_g = round(meal.fat_g * scale, 1)
-    m.fibre_g = round(meal.fibre_g * scale, 1)
-    m.portion_scale = scale
-    return m
+    return _dc.replace(
+        meal,
+        calories=round(meal.calories * scale, 0),
+        protein_g=round(meal.protein_g * scale, 1),
+        carbs_g=round(meal.carbs_g * scale, 1),
+        fat_g=round(meal.fat_g * scale, 1),
+        fibre_g=round(meal.fibre_g * scale, 1),
+        portion_scale=scale,
+    )
 
 
 def _source_of(meal: MealItem) -> str:
@@ -341,8 +383,6 @@ def _choose_day(
         booster. If fiber is under target, add a fiber side. Boosters are
         added at their natural portion size (not scaled).
     """
-    import copy as _copy
-
     layout = _slot_layout(meals_per_day)
 
     # --- Phase 1: Macro-targeted recipe selection ---
@@ -366,6 +406,18 @@ def _choose_day(
                         "snack_1": ["breakfast"], "snack_2": ["breakfast"]}.get(slot, [])
             candidates = [m for m in pool if m.slot in fallback]
         if not candidates:
+            # P1 #14 — previously this silently `continue`d, causing the day
+            # to lose a meal (e.g., no breakfast) with no warning. The
+            # auditor catches "<3 meals" but not "missing slot X". We now
+            # emit a stderr warning so the user knows their allergen/diet
+            # filters may be too restrictive for the recipe pool.
+            import sys as _sys
+            _sys.stderr.write(
+                f"[fitness_engine] warning: no candidate recipes for slot "
+                f"'{slot}' after filtering (day will be missing this meal). "
+                f"Consider relaxing diet/allergen/cuisine filters or "
+                f"expanding the recipe pool.\n"
+            )
             continue
 
         # Score by macro DENSITY proximity: lower = better match.
@@ -405,12 +457,16 @@ def _choose_day(
         candidates.sort(key=macro_score)
         chosen = candidates[0]
         used_names.add(chosen.name)
-        if chosen.slot != slot and slot in ("snack_1", "snack_2"):
-            chosen = _copy.copy(chosen)
-            chosen.slot = slot
-        elif chosen.slot != slot and slot not in ("lunch", "dinner"):
-            chosen = _copy.copy(chosen)
-            chosen.slot = slot
+        # P1 #13 — Always stamp the assigned slot on the chosen meal. The
+        # previous code only stamped for snack slots and skipped lunch/dinner
+        # crossover, which broke _alternatives_for (drew from the wrong pool)
+        # and the auditor's slot-sanity check (inspected original slot).
+        # Now any meal chosen for a different slot than its native slot gets
+        # a dataclasses.replace copy with .slot stamped to the assigned slot
+        # (MealItem is frozen=True).
+        if chosen.slot != slot:
+            import dataclasses as _dc
+            chosen = _dc.replace(chosen, slot=slot)
         picks.append(chosen)
 
     # --- Phase 2: Uniform scaling to hit calorie target exactly ---
@@ -436,8 +492,9 @@ def _choose_day(
     if actual_p < target_macros.protein_g * 0.85 and len(scaled) < max_total_meals:
         booster = _best_protein_booster(pool, used_names)
         if booster is not None:
-            booster = _copy.copy(booster)
-            booster.slot = "snack"
+            # P2 #16 — use dataclasses.replace to keep MealItem frozen=True.
+            import dataclasses as _dc3
+            booster = _dc3.replace(booster, slot="snack")
             used_names.add(booster.name)
             picks.append(booster)
             # Re-scale all meals including booster
@@ -449,8 +506,9 @@ def _choose_day(
     if actual_fiber < micronutrient_targets(target_calories).fibre_g * 0.60 and len(scaled) < max_total_meals:
         side = _best_fibre_side(pool, used_names)
         if side is not None:
-            side = _copy.copy(side)
-            side.slot = "snack"
+            # P2 #16 — use dataclasses.replace to keep MealItem frozen=True.
+            import dataclasses as _dc2
+            side = _dc2.replace(side, slot="snack")
             used_names.add(side.name)
             picks.append(side)
             base_total = sum(m.calories for m in picks) or 1
@@ -479,124 +537,11 @@ def _choose_day(
     )
 
 
-def _optimize_scales(picks: List[MealItem], target_cal: float,
-                      target_macros: Macros) -> List[MealItem]:
-    """Optimize per-meal scale factors to match calorie AND macro targets.
-
-    Uses a least-squares approach via normal equations. We have N meals
-    and 4 targets (calories, protein, carbs, fat). Each meal i contributes
-    (cal_i × s_i, p_i × s_i, c_i × s_i, f_i × s_i) to the totals.
-
-    We solve: A × s = t, where:
-      A = [[cal_1, cal_2, ..., cal_n],     (4×N matrix)
-           [p_1,   p_2,   ..., p_n],
-           [c_1,   c_2,   ..., c_n],
-           [f_1,   f_2,   ..., f_n]]
-      s = [s_1, s_2, ..., s_n]              (N unknowns)
-      t = [target_cal, target_p, target_c, target_f]
-
-    Since N >= 4 and the system is over-determined, we use the normal
-    equation: s = (A^T × A)^-1 × A^T × t. This minimizes the sum of
-    squared errors across all 4 macros.
-
-    After solving, we clamp scales to [0.3, 2.5] and re-normalize to
-    ensure calories are exactly on target (the most important constraint).
-    """
-    if not picks:
-        return []
-
-    n = len(picks)
-    # Build the macro matrix (4 rows × N cols)
-    A = []
-    for macro_idx in range(4):
-        row = []
-        for m in picks:
-            if macro_idx == 0:
-                row.append(m.calories)
-            elif macro_idx == 1:
-                row.append(m.protein_g)
-            elif macro_idx == 2:
-                row.append(m.carbs_g)
-            else:
-                row.append(m.fat_g)
-        A.append(row)
-
-    t = [target_cal, target_macros.protein_g, target_macros.carbs_g, target_macros.fat_g]
-
-    # Solve via normal equations: s = (A^T A)^-1 A^T t
-    # A^T is N×4, A is 4×N, so A^T A is N×N
-    # For small N (4-6), this is trivially solvable
-
-    # Compute A^T (N×4)
-    AT = [[A[j][i] for j in range(4)] for i in range(n)]
-
-    # Compute A^T × A (N×N)
-    ATA = [[sum(AT[i][k] * A[k][j] for k in range(4)) for j in range(n)] for i in range(n)]
-
-    # Compute A^T × t (N×1)
-    ATt = [sum(AT[i][k] * t[k] for k in range(4)) for i in range(n)]
-
-    # Solve ATA × s = ATt using Gaussian elimination
-    scales = _solve_linear_system(ATA, ATt, n)
-
-    if scales is None:
-        # Fallback: uniform scale
-        total_base_cal = sum(A[0]) or 1
-        scales = [target_cal / total_base_cal] * n
-
-    # Clamp scales
-    scales = [max(0.3, min(2.5, s)) for s in scales]
-
-    # Final calorie correction: adjust all scales proportionally to hit calories exactly
-    current_cal = sum(scales[i] * A[0][i] for i in range(n))
-    if current_cal > 0:
-        cal_ratio = target_cal / current_cal
-        scales = [max(0.3, min(2.5, s * cal_ratio)) for s in scales]
-
-    # Apply final scales
-    result = []
-    for i, m in enumerate(picks):
-        result.append(_scale(m, scales[i]))
-
-    return result
-
-
-def _solve_linear_system(A: List[List[float]], b: List[float], n: int) -> Optional[List[float]]:
-    """Solve Ax = b using Gaussian elimination with partial pivoting.
-
-    A is n×n, b is n×1, returns x (n×1) or None if singular.
-    """
-    # Create augmented matrix [A|b]
-    M = [row[:] + [b[i]] for i, row in enumerate(A)]
-
-    # Forward elimination
-    for col in range(n):
-        # Partial pivot
-        max_row = col
-        for row in range(col + 1, n):
-            if abs(M[row][col]) > abs(M[max_row][col]):
-                max_row = row
-        M[col], M[max_row] = M[max_row], M[col]
-
-        # Check for singularity
-        if abs(M[col][col]) < 1e-10:
-            return None
-
-        # Eliminate
-        for row in range(col + 1, n):
-            factor = M[row][col] / M[col][col]
-            for j in range(col, n + 1):
-                M[row][j] -= factor * M[col][j]
-
-    # Back substitution
-    x = [0.0] * n
-    for i in range(n - 1, -1, -1):
-        x[i] = M[i][n]
-        for j in range(i + 1, n):
-            x[i] -= M[i][j] * x[j]
-        x[i] /= M[i][i]
-
-    return x
+# P2 #19 — _optimize_scales and _solve_linear_system (~120 lines) removed:
+# they were never called. The active scaling path uses the uniform-scale
+# approach in the _choose_day Phase 2 block. Removing dead code reduces
+# maintenance burden and the risk of someone "fixing" code that has no
+# effect on output.
 
 
 def _quality(day: MealPlan, target_calories: float, target_macros: Macros) -> DayPlanQuality:
@@ -661,6 +606,12 @@ def assemble_7_day_meal_plan(
     include_internal: bool = False, alternatives_per_meal: int = 3,
     seed: Optional[int] = None,
 ) -> SevenDayMealPlan:
+    # P2 #23 — validate target_calories > 0; _quality divides by it and
+    # would ZeroDivisionError if 0. Previously silently produced 0.25× scaled plans.
+    if target_calories <= 0:
+        raise ValueError(
+            f"target_calories must be positive, got {target_calories}"
+        )
     # Use a LOCAL Random instance instead of seeding the global random module.
     # The previous implementation called random.seed(seed), which mutated
     # process-wide state and affected every subsequent random call in the
@@ -696,7 +647,12 @@ def assemble_7_day_meal_plan(
         # the existing used_names set plus a separate count check below.
         day = _choose_day(pool, diet, target_calories, target_macros,
                           meals_per_day, preferred_cuisines, used_names, rng)
-        day.name = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][idx]
+        # P2 #16 — use dataclasses.replace to keep MealPlan frozen=True.
+        import dataclasses as _dc
+        day = _dc.replace(
+            day,
+            name=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][idx],
+        )
         # Update use counts for the meals that ended up in the day.
         for meal in day.meals:
             use_counts[meal.name] = use_counts.get(meal.name, 0) + 1
